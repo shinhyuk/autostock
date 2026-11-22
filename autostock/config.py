@@ -61,6 +61,9 @@ class Settings:
     flatten_before_close_min: int = 5
     fee_pct: float = 0.25
     tick_sec: int = 10
+    trail_atr_mult: float = 2.5         # 추적 손절 폭 = 1분 ATR × 이 값 (아래 범위로 제한)
+    trail_min_pct: float = 0.6
+    surge_pct: float = 1.0              # 직전 판단 이후 이만큼 움직이면 주기와 무관하게 AI 를 다시 부른다
 
     # 판단 참고용 주변 종목(매매하지 않음). 앞의 context_bars 개는 분봉 추세까지 본다.
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
@@ -122,6 +125,9 @@ def load() -> Settings:
         flatten_before_close_min=_i("FLATTEN_BEFORE_CLOSE_MIN", 5),
         fee_pct=_f("FEE_PCT", 0.25),
         tick_sec=_i("TICK_SEC", 10),
+        trail_atr_mult=_f("TRAIL_ATR_MULT", 2.5),
+        trail_min_pct=_f("TRAIL_MIN_PCT", 0.6),
+        surge_pct=_f("SURGE_PCT", 1.0),
         context=tuple(x.strip().upper() for x in _s("CONTEXT_SYMBOLS", "NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ").split(",")
                       if x.strip()),
     )

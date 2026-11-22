@@ -48,8 +48,8 @@ class Brain:
 @pytest.fixture
 def rig(tmp_path):
     def make(*decisions, at=(11, 0), **over):
-        cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), decision_interval_sec=60,
-                                  fee_pct=0.0, **over)
+        cfg = dataclasses.replace(Settings(), **{"data_dir": str(tmp_path), "decision_interval_sec": 60,
+                                                 "fee_pct": 0.0, **over})
         m = Market(datetime(2026, 1, 5, *at, tzinfo=ET))
         brain = Brain(*decisions)
         e = Engine(cfg, m, PaperBroker(slippage_pct=0), brain, clock=lambda: m.now)
@@ -344,3 +344,42 @@ def test_snapshot_includes_sector_context(rig):
     sec = brain.snaps[0]["sector"]
     assert set(sec) == {"NVDA", "SOXX", "AMD"}                       # 실패한 종목은 빠지고 판단은 계속
     assert "ret_15m_pct" in sec["NVDA"] and "ret_15m_pct" not in sec["AMD"]
+
+
+def test_trailing_stop_locks_in_gain(rig):
+    e, m, _ = rig(dec(stop=1.5, take=9.0))
+    e.tick()
+    assert e.st.open.trail_pct == 0.6                                # ATR 0 → 최소폭
+    step(e, m, SOXL=30.12)                                           # +0.4%: 아직 발동 조건 전
+    step(e, m, SOXL=29.95)
+    assert e.st.open is not None                                     # 고점 수익이 추적폭 미만이면 그냥 보유
+    step(e, m, SOXL=30.45)                                           # +1.5% 고점
+    assert e.st.open.peak_price == 30.45
+    step(e, m, SOXL=30.25)                                           # 고점 대비 -0.66%
+    assert e.st.open is None and "추적 손절" in e.st.history[-1]["reason"] and e.st.realized_usd > 0
+
+
+def test_price_move_and_exit_trigger_extra_decisions(rig):
+    e, m, brain = rig(decision_interval_sec=600, surge_pct=1.0)
+    e.tick()                                                         # 첫 판단 (HOLD)
+    step(e, m, SOXL=30.1)
+    assert len(brain.snaps) == 1                                     # 주기 전, 움직임 작음
+    step(e, m, SOXL=30.4)                                            # 직전 판단 대비 +1.3%
+    assert len(brain.snaps) == 2 and brain.snaps[1]["trigger"] == "price_move"
+
+    e, m, brain = rig(dec(stop=1.0), dec(symbol="SOXS"), decision_interval_sec=600)
+    e.tick()
+    step(e, m, SOXL=29.6)                                            # 손절
+    step(e, m)                                                       # 바로 다음 틱에 AI 호출 → 반대 종목 진입
+    assert brain.snaps[1]["trigger"] == "after_exit" and e.st.open.symbol == "SOXS"
+
+
+def test_old_state_file_still_loads(tmp_path):
+    import json
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({"date": "2026-01-05", "realized_usd": 1.0, "trades": 1, "wins": 1, "losses": 0,
+                             "consecutive_losses": 0, "last_loss_ts": "", "halted": "", "history": [],
+                             "open": {"symbol": "SOXL", "qty": 3, "entry_price": 30.0, "entry_ts": "x",
+                                      "stop_pct": 2.0, "take_pct": 3.0, "buy_fee": 0.1}}))
+    st = DayState.load(str(p))
+    assert st.open.trail_pct == 0 and st.last_loss_symbol == ""

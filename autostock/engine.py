@@ -53,6 +53,8 @@ class Engine:
         self.last_decision_at: datetime | None = None
         self.recent_decisions: list[dict] = []
         self._waiting_logged = ""
+        self.ref_prices: dict[str, float] = {}       # 직전 AI 판단 때의 가격 (급변 감지용)
+        self.trigger = "scheduled"
 
     # ── 기록 ────────────────────────────────────────────────
     def _journal(self, kind: str, **data) -> None:
@@ -116,7 +118,7 @@ class Engine:
         return ok
 
     # ── 주문 ────────────────────────────────────────────────
-    def _enter(self, d: Decision, last: float) -> None:
+    def _enter(self, d: Decision, last: float, atr_pct: float | None = None) -> None:
         qty = self.risk.size(self.st, d, last)
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
@@ -126,11 +128,12 @@ class Engine:
             self._reject(d, "매수 미체결")
             return
         stop, take = self.risk.stops(d)
+        trail = self.risk.trail(stop, atr_pct)
         self.st.open = OpenTrade(d.symbol, fill.qty, fill.price, self.clock().isoformat(),
-                                 stop, take, self.risk.fee(fill.price, fill.qty))
+                                 stop, take, self.risk.fee(fill.price, fill.qty), fill.price, trail)
         self.st.save(self.state_path)
-        log.info("▶ 매수 %s %d주 @ $%.2f  (손절 -%.1f%% / 익절 +%.1f%%)  %s",
-                 d.symbol, fill.qty, fill.price, stop, take, d.reason)
+        log.info("▶ 매수 %s %d주 @ $%.2f  (손절 -%.1f%% / 익절 +%.1f%% / 추적 %.1f%%)  %s",
+                 d.symbol, fill.qty, fill.price, stop, take, trail, d.reason)
         self._journal("buy", symbol=d.symbol, qty=fill.qty, price=fill.price,
                       stop_pct=stop, take_pct=take, reason=d.reason)
 
@@ -155,7 +158,7 @@ class Engine:
                 st.wins, st.consecutive_losses = st.wins + 1, 0
             else:
                 st.losses, st.consecutive_losses = st.losses + 1, st.consecutive_losses + 1
-                st.last_loss_ts = self.clock().isoformat()
+                st.last_loss_ts, st.last_loss_symbol = self.clock().isoformat(), t.symbol
         st.history.append({"symbol": t.symbol, "qty": fill.qty, "entry": t.entry_price,
                            "exit": fill.price, "pnl_usd": round(pnl, 2), "reason": reason,
                            "ts": self.clock().strftime("%H:%M")})
@@ -215,9 +218,12 @@ class Engine:
                    "change_pct": round((last / t.entry_price - 1) * 100, 2),
                    "unrealized_usd": round(self.risk.unrealized(t, last), 2),
                    "held_min": round((now - datetime.fromisoformat(t.entry_ts)).total_seconds() / 60),
-                   "stop_loss_pct": t.stop_pct, "take_profit_pct": t.take_pct}
+                   "peak_change_pct": round((max(t.peak_price, last) / t.entry_price - 1) * 100, 2),
+                   "stop_loss_pct": t.stop_pct, "take_profit_pct": t.take_pct,
+                   "trailing_stop_pct": t.trail_pct}
         return {
             "time_et": now.strftime("%Y-%m-%d %H:%M"),
+            "trigger": self.trigger,
             "minutes_since_open": round(minutes_since_open(now)),
             "minutes_to_close": round(minutes_to_close(now)),
             "market": market,
@@ -239,6 +245,7 @@ class Engine:
 
     def _ask_ai(self, now: datetime) -> None:
         snap = self.snapshot(now)
+        self.ref_prices = {s: m["last"] for s, m in snap["market"].items()}
         d: Decision = self.brain.decide(snap)
         log.info("AI: %s %s (확신 %.2f) — %s", d.action, d.symbol, d.confidence, d.reason)
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": d.action,
@@ -271,7 +278,7 @@ class Engine:
         if abs(last / snap["market"][d.symbol]["last"] - 1) * 100 > 0.5:
             self._reject(d, "판단 중 가격이 0.5% 이상 움직임")
             return
-        self._enter(d, last)
+        self._enter(d, last, snap["market"][d.symbol].get("atr14_pct"))
 
     # ── 루프 ────────────────────────────────────────────────
     def tick(self) -> None:
@@ -282,20 +289,36 @@ class Engine:
             self.recent_decisions.clear()
             self.st.save(self.state_path)
 
+        watch = self.cfg.bull
+        last = None
         if t := self.st.open:                        # 1) 보유 포지션 보호가 항상 먼저
+            watch = t.symbol
             last = self.market.quote(t.symbol).last
+            if last > t.peak_price:
+                t.peak_price = last
+                self.st.save(self.state_path)
             if why := self.risk.exit_reason(self.st, now, last):
-                self._close(why, last)
+                if self._close(why, last) and not self.st.halted:
+                    self.last_decision_at = None     # 코드가 청산했으면 바로 다음 틱에 AI 에게 다음 수를 묻는다
+                    self.trigger = "after_exit"
                 return
         if self.st.halted and not self.st.open:
             return
         if not self.preflight(now):
             return
-        due = (self.last_decision_at is None or
-               (now - self.last_decision_at).total_seconds() >= self.cfg.decision_interval_sec)
-        if due:                                      # 2) 주기가 되면 AI에게 묻기
+        since = None if self.last_decision_at is None else (now - self.last_decision_at).total_seconds()
+        due = since is None or since >= self.cfg.decision_interval_sec
+        if not due and since >= 45 and (ref := self.ref_prices.get(watch)):
+            if last is None:
+                last = self.market.quote(watch).last
+            if abs(last / ref - 1) * 100 >= self.cfg.surge_pct:
+                due, self.trigger = True, "price_move"
+        if due:                                      # 2) 주기가 됐거나 가격이 급변했으면 AI에게 묻기
             self.last_decision_at = now
-            self._ask_ai(now)
+            try:
+                self._ask_ai(now)
+            finally:
+                self.trigger = "scheduled"
 
     def run(self, max_minutes: float = 0, exit_when_closed: bool = False) -> str:
         """exit_when_closed: 장이 끝났거나 개장이 2시간 넘게 남았으면 "closed"를 반환하고 끝낸다.

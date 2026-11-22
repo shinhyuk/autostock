@@ -15,6 +15,8 @@ class OpenTrade:
     stop_pct: float
     take_pct: float
     buy_fee: float
+    peak_price: float = 0.0  # 진입 후 최고가 (추적 손절 기준)
+    trail_pct: float = 0.0   # 최고가 대비 이만큼 밀리면 청산. 0이면 추적 손절 없음
 
 
 @dataclass
@@ -26,6 +28,7 @@ class DayState:
     losses: int = 0
     consecutive_losses: int = 0
     last_loss_ts: str = ""
+    last_loss_symbol: str = ""
     halted: str = ""         # 비어있지 않으면 당일 신규 진입 중단 사유
     open: OpenTrade | None = None
     history: list[dict] = field(default_factory=list)   # 당일 청산 내역

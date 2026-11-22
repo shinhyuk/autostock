@@ -36,10 +36,10 @@ class Risk:
             return "장 시작 직후 진입 금지 구간"
         if minutes_to_close(now) < c.no_entry_before_close_min:
             return "장 마감 전 진입 금지 구간"
-        if st.last_loss_ts:
+        if st.last_loss_ts and d.symbol == st.last_loss_symbol:     # 반대 종목으로 갈아타는 것은 허용
             mins = (now - datetime.fromisoformat(st.last_loss_ts)).total_seconds() / 60
             if mins < c.cooldown_after_loss_min:
-                return f"손절 후 쿨다운 {c.cooldown_after_loss_min - mins:.0f}분 남음"
+                return f"같은 종목 손절 후 쿨다운 {c.cooldown_after_loss_min - mins:.0f}분 남음"
         return ""
 
     def stops(self, d: Decision) -> tuple[float, float]:
@@ -48,6 +48,11 @@ class Risk:
         stop = min(max(d.stop_loss_pct or c.max_stop_loss_pct, 0.3), c.max_stop_loss_pct)
         take = min(max(d.take_profit_pct or c.default_take_profit_pct, 0.5), 10.0)
         return stop, take
+
+    def trail(self, stop_pct: float, atr_pct: float | None) -> float:
+        """추적 손절 폭(%). 최근 1분 변동성에 비례하되 손절폭보다 넓지 않게."""
+        c = self.cfg
+        return round(min(max((atr_pct or 0) * c.trail_atr_mult, c.trail_min_pct), stop_pct), 2)
 
     def size(self, st: DayState, d: Decision, price: float) -> int:
         """매수 수량. 운용자금(+당일 실현손익) 범위 안에서, 손절 시 일일 손실한도를 넘지 않게."""
@@ -77,6 +82,11 @@ class Risk:
             return f"손절 {chg:.2f}%"
         if chg >= t.take_pct:
             return f"익절 {chg:.2f}%"
+        if t.trail_pct and t.peak_price:
+            # 최고 수익이 추적 폭을 넘은 뒤부터 작동 → 발동 가격이 항상 진입가 이상
+            peak_gain = (t.peak_price / t.entry_price - 1) * 100
+            if peak_gain >= t.trail_pct and last <= t.peak_price * (1 - t.trail_pct / 100):
+                return f"추적 손절 (고점 +{peak_gain:.2f}% → 현재 {chg:+.2f}%)"
         if minutes_to_close(now) <= c.flatten_before_close_min:
             return "장 마감 전 강제 청산"
         return ""
