@@ -60,18 +60,22 @@ class ClaudeBrain:
 
     def decide(self, snapshot: dict) -> Decision:
         """오류·거절 시에는 항상 HOLD를 돌려준다(보유 포지션은 코드 손절이 보호)."""
+        req = dict(
+            model=self.cfg.model,
+            max_tokens=16000,
+            system=self.system,
+            output_config={"effort": self.cfg.effort},
+            output_format=Decision,
+            messages=[{"role": "user", "content": json.dumps(snapshot, ensure_ascii=False)}],
+        )
         try:
-            resp = self.client.beta.messages.parse(
-                model=self.cfg.model,
-                max_tokens=16000,
-                system=self.system,
-                output_config={"effort": self.cfg.effort},
-                output_format=Decision,
+            if "haiku" in self.cfg.model:
+                # Haiku 는 서버 측 대체 모델(fallbacks)을 지원하지 않는다. 거절되면 아래에서 HOLD 처리.
+                resp = self.client.messages.parse(**req)
+            else:
                 # 안전 분류기가 요청을 거절하면 서버가 대체 모델로 같은 요청을 재실행한다.
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
-                messages=[{"role": "user", "content": json.dumps(snapshot, ensure_ascii=False)}],
-            )
+                resp = self.client.beta.messages.parse(
+                    **req, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
         except anthropic.RateLimitError as e:
             log.warning("Claude 호출 한도 초과 → HOLD: %s", e)
             return HOLD.model_copy(update={"reason": "API 한도 초과"})

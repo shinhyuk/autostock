@@ -29,17 +29,28 @@ set_mode() {       # .env 의 MODE 와 실계좌 확인값을 바꾼다
   [[ ,$1, == *,live,* ]] && confirm=I_UNDERSTAND
   sed -i -E "s/^MODE=.*/MODE=$1/; s/^LIVE_TRADING_CONFIRM=.*/LIVE_TRADING_CONFIRM=$confirm/" .env
 }
-sync_mode() {      # 저장소의 deploy/mode 가 바뀌었으면 서버에 적용 (폰에서 모드를 바꾸기 위한 장치)
-  [[ -f deploy/mode ]] || return 0
-  local want; want=$(tr -d ' \n\r' < deploy/mode)
-  [[ $want =~ ^(paper|kis-demo|live)(,(paper|kis-demo|live))*$ ]] || return 0
-  [[ $(cat data/.applied_mode 2>/dev/null) == "$want" ]] && return 0
-  if has_position; then echo "보유 포지션이 있어 모드 변경($want)을 미룹니다"; return 0; fi
+set_key() {        # .env 의 KEY 값을 바꾸거나, 없으면 추가
+  if grep -q -E "^$1=" .env; then sed -i -E "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+}
+sync_settings() {  # 저장소의 deploy/settings 가 바뀌었으면 서버 .env 에 적용 (폰에서 설정을 바꾸기 위한 장치)
+  [[ -f deploy/settings ]] || return 0
+  local sum; sum=$(sha256sum < deploy/settings | cut -c1-16)
+  [[ $(cat data/.applied_settings 2>/dev/null) == "$sum" ]] && return 0
+  if has_position; then echo "보유 포지션이 있어 설정 변경을 미룹니다"; return 0; fi
+  local k v
+  while IFS='=' read -r k v; do
+    [[ $k =~ ^(MODE|CLAUDE_MODEL|CLAUDE_EFFORT|DECISION_INTERVAL_SEC)$ && $v =~ ^[A-Za-z0-9_.,-]+$ ]] || continue
+    if [[ $k == MODE ]]; then
+      [[ $v =~ ^(paper|kis-demo|live)(,(paper|kis-demo|live))*$ ]] || continue
+      set_mode "$v"
+    else
+      set_key "$k" "$v"
+    fi
+    echo "저장소 설정 적용: $k=$v"
+  done < deploy/settings
   mkdir -p data
-  set_mode "$want"
-  echo "$want" > data/.applied_mode
+  echo "$sum" > data/.applied_settings
   sudo systemctl restart autostock
-  echo "저장소 설정에 따라 모드 → $want"
 }
 
 case "${1:-}" in
@@ -133,7 +144,7 @@ mode)
 update)
   br=$(git rev-parse --abbrev-ref HEAD)
   git fetch -q origin "$br"
-  if [[ $(git rev-parse HEAD) == $(git rev-parse FETCH_HEAD) ]]; then sync_mode; echo "이미 최신"; exit 0; fi
+  if [[ $(git rev-parse HEAD) == $(git rev-parse FETCH_HEAD) ]]; then sync_settings; echo "이미 최신"; exit 0; fi
   if [[ ${2:-} != --force ]] && has_position; then echo "보유 포지션이 있어 업데이트를 미룹니다"; exit 0; fi
   git merge -q --ff-only FETCH_HEAD
   "$DIR/.venv/bin/pip" install -q -r requirements.txt

@@ -175,6 +175,12 @@ def test_decision_schema_accepted_by_sdk():
     assert sent["output_config"]["format"]["type"] == "json_schema"
     assert sent["output_config"]["effort"] == "medium" and sent["fallbacks"] == "default"
 
+    sent.clear()                                                     # Haiku: fallbacks 없이 일반 엔드포인트
+    cfg = dataclasses.replace(Settings(), model="claude-haiku-5-5", effort="high")
+    assert ClaudeBrain(cfg, client=c).decide({"x": 1}).action == "BUY"
+    assert sent["model"] == "claude-haiku-5-5" and "fallbacks" not in sent
+    assert sent["output_config"]["effort"] == "high" and sent["output_config"]["format"]["type"] == "json_schema"
+
 
 # ── KIS ───────────────────────────────────────────────────
 class FakeHTTP:
