@@ -308,9 +308,7 @@ def test_web_page_renders_and_escapes(rig):
     e.tick()
     e.st.open = None
     e._journal("decision", action="HOLD", symbol="", confidence=0.5, reason="<script>x</script>")
-    cfg = dataclasses.replace(e.cfg, mode="paper")
-    import shutil
-    shutil.copy(e.log_path, e.log_path.replace("journal_paper", "journal_paper"))
+    cfg = e.cfg
     page = web.render(cfg, "paper", "tok")
     assert "최근 AI 판단" in page and "&lt;script&gt;" in page and "<script>x" not in page
     assert "아직 기록이 없습니다" in web.render(cfg, "live", "tok")
