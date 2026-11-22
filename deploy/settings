@@ -1,0 +1,6 @@
+# 서버 운영 설정. 이 파일이 바뀌면 서버가 5분 안에 .env 에 반영하고 봇을 재시작한다.
+# (포지션 보유 중이면 청산될 때까지 미룸. 비밀 값은 여기에 적지 않는다.)
+# 사용할 수 있는 키: MODE CLAUDE_MODEL CLAUDE_EFFORT DECISION_INTERVAL_SEC
+MODE=live
+CLAUDE_MODEL=claude-haiku-5-5
+CLAUDE_EFFORT=high
