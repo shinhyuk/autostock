@@ -1,0 +1,103 @@
+"""환경변수(.env) 기반 설정."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+from dotenv import load_dotenv
+
+
+def _f(name: str, default: float) -> float:
+    return float(os.getenv(name) or default)
+
+
+def _i(name: str, default: int) -> int:
+    return int(os.getenv(name) or default)
+
+
+def _s(name: str, default: str = "") -> str:
+    return (os.getenv(name) or default).strip()
+
+
+@dataclass(frozen=True)
+class Settings:
+    mode: str = "paper"                 # paper | kis-demo | live
+    live_confirm: str = ""
+
+    model: str = "claude-opus-5-5"
+    effort: str = "medium"
+    decision_interval_sec: int = 180
+
+    kis_app_key: str = ""
+    kis_app_secret: str = ""
+    kis_account_no: str = ""
+    kis_account_product: str = "01"
+    kis_env: str = "demo"               # demo | real
+
+    capital_krw: float = 1_000_000
+    daily_target_krw: float = 100_000
+    daily_max_loss_krw: float = 50_000
+    usdkrw: float = 1400.0
+
+    max_stop_loss_pct: float = 2.0
+    default_take_profit_pct: float = 3.0
+    max_trades_per_day: int = 8
+    max_consecutive_losses: int = 3
+    cooldown_after_loss_min: int = 10
+    min_confidence: float = 0.6
+    no_entry_after_open_min: int = 5
+    no_entry_before_close_min: int = 20
+    flatten_before_close_min: int = 5
+    fee_pct: float = 0.25
+    tick_sec: int = 10
+
+    bull: str = "SOXL"
+    bear: str = "SOXS"
+    data_dir: str = "data"
+
+    @property
+    def symbols(self) -> tuple[str, str]:
+        return (self.bull, self.bear)
+
+    @property
+    def capital_usd(self) -> float:
+        return self.capital_krw / self.usdkrw
+
+    @property
+    def target_usd(self) -> float:
+        return self.daily_target_krw / self.usdkrw
+
+    @property
+    def max_loss_usd(self) -> float:
+        return self.daily_max_loss_krw / self.usdkrw
+
+
+def load() -> Settings:
+    load_dotenv()
+    return Settings(
+        mode=_s("MODE", "paper"),
+        live_confirm=_s("LIVE_TRADING_CONFIRM"),
+        model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
+        effort=_s("CLAUDE_EFFORT", "medium"),
+        decision_interval_sec=_i("DECISION_INTERVAL_SEC", 180),
+        kis_app_key=_s("KIS_APP_KEY"),
+        kis_app_secret=_s("KIS_APP_SECRET"),
+        kis_account_no=_s("KIS_ACCOUNT_NO"),
+        kis_account_product=_s("KIS_ACCOUNT_PRODUCT", "01"),
+        kis_env=_s("KIS_ENV", "demo"),
+        capital_krw=_f("CAPITAL_KRW", 1_000_000),
+        daily_target_krw=_f("DAILY_TARGET_KRW", 100_000),
+        daily_max_loss_krw=_f("DAILY_MAX_LOSS_KRW", 50_000),
+        usdkrw=_f("USDKRW", 1400),
+        max_stop_loss_pct=_f("MAX_STOP_LOSS_PCT", 2.0),
+        default_take_profit_pct=_f("DEFAULT_TAKE_PROFIT_PCT", 3.0),
+        max_trades_per_day=_i("MAX_TRADES_PER_DAY", 8),
+        max_consecutive_losses=_i("MAX_CONSECUTIVE_LOSSES", 3),
+        cooldown_after_loss_min=_i("COOLDOWN_AFTER_LOSS_MIN", 10),
+        min_confidence=_f("MIN_CONFIDENCE", 0.6),
+        no_entry_after_open_min=_i("NO_ENTRY_AFTER_OPEN_MIN", 5),
+        no_entry_before_close_min=_i("NO_ENTRY_BEFORE_CLOSE_MIN", 20),
+        flatten_before_close_min=_i("FLATTEN_BEFORE_CLOSE_MIN", 5),
+        fee_pct=_f("FEE_PCT", 0.25),
+        tick_sec=_i("TICK_SEC", 10),
+    )
