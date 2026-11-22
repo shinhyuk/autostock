@@ -285,3 +285,18 @@ def test_kis_credential_profiles(monkeypatch):
     monkeypatch.setenv("KIS_ENV", "demo")
     c = config.load()
     assert c.kis_demo.app_key == "OLD" and c.kis_real.app_key == "R"
+
+
+def test_kis_retries_on_rate_limit(kis):
+    c, _ = kis()
+    real_get, n = c.http.get, {"n": 0}
+
+    def flaky(url, **kw):
+        n["n"] += 1
+        if n["n"] <= 2:
+            return SimpleNamespace(status_code=500, text="", json=lambda: {
+                "rt_cd": "1", "msg_cd": "EGW00201", "msg1": "초당 거래건수를 초과하였습니다."})
+        return real_get(url, **kw)
+
+    c.http.get = flaky
+    assert KISMarket(c).quote("SOXL").last == 30.10 and n["n"] == 3

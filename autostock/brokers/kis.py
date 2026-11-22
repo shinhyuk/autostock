@@ -43,7 +43,8 @@ class KISClient:
         self.key, self.secret, self.env = app_key, app_secret, env
         self.base = BASE[env]
         self.token_path = os.path.join(data_dir, f"kis_token_{env}.json")
-        self.min_gap = 0.55 if env == "demo" else 0.07   # 모의 초당 2건, 실전 초당 20건 제한
+        # 초당 호출 제한: 모의 2건, 실전 20건(신규 계좌는 한동안 더 낮음). 봇은 호출이 적으니 넉넉히 띄운다.
+        self.min_gap = 1.0 if env == "demo" else 0.4
         self._last = 0.0
         self._token = ""
         self._exp = 0.0
@@ -65,18 +66,31 @@ class KISClient:
         j = r.json()
         self._token, self._exp = j["access_token"], time.time() + int(j.get("expires_in", 86400))
         os.makedirs(os.path.dirname(self.token_path) or ".", exist_ok=True)
+        self._last = time.time()
         with open(self.token_path, "w") as f:      # 토큰 발급은 분당 1회 제한 → 파일 캐시
             json.dump({"token": self._token, "exp": self._exp, "key": self.key[-6:]}, f)
         os.chmod(self.token_path, 0o600)
         return self._token
 
     def call(self, method: str, path: str, tr_id: str, payload: dict) -> dict:
+        for attempt in range(1, 5):
+            j = self._call_once(method, path, tr_id, payload)
+            # EGW00201 = 초당 거래건수 초과. 게이트웨이에서 거절된 것이라 처리되지 않았으므로 재시도해도 안전.
+            if j.get("msg_cd") != "EGW00201" or attempt == 4:
+                break
+            time.sleep(attempt)
+        if str(j.get("rt_cd")) != "0":
+            raise KISError(f"{path} [{j.get('msg_cd')}] {j.get('msg1')}")
+        return j
+
+    def _call_once(self, method: str, path: str, tr_id: str, payload: dict) -> dict:
+        token = self._auth()
         wait = self.min_gap - (time.time() - self._last)
         if wait > 0:
             time.sleep(wait)
         headers = {
             "content-type": "application/json; charset=utf-8",
-            "authorization": f"Bearer {self._auth()}",
+            "authorization": f"Bearer {token}",
             "appkey": self.key, "appsecret": self.secret,
             "tr_id": tr_id, "custtype": "P",
         }
@@ -89,12 +103,9 @@ class KISClient:
         finally:
             self._last = time.time()
         try:
-            j = r.json()
+            return r.json()
         except ValueError:
             raise KISError(f"{path} HTTP {r.status_code}: {r.text[:200]}") from None
-        if r.status_code != 200 or str(j.get("rt_cd")) != "0":
-            raise KISError(f"{path} [{j.get('msg_cd')}] {j.get('msg1')}")
-        return j
 
 
 def _num(v) -> float:
