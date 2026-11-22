@@ -10,7 +10,7 @@ from typing import Callable
 
 from . import indicators
 from .config import Settings
-from .market_hours import is_open, minutes_since_open, minutes_to_close, now_et
+from .market_hours import CLOSE, is_open, minutes_since_open, minutes_to_close, now_et
 from .models import Broker, Decision, MarketData
 from .risk import Risk
 from .state import DayState, OpenTrade
@@ -223,13 +223,23 @@ class Engine:
             self.last_decision_at = now
             self._ask_ai(now)
 
-    def run(self) -> None:
+    def run(self, max_minutes: float = 0, exit_when_closed: bool = False) -> str:
+        """exit_when_closed: 장이 끝났거나 개장이 2시간 넘게 남았으면 "closed"를 반환하고 끝낸다.
+        max_minutes: 실행 시간이 이만큼 지나면 "handoff"를 반환한다(다음 실행이 이어받음).
+        둘 다 GitHub Actions처럼 실행 시간이 제한된 환경을 위한 것."""
         self.reconcile()
+        started = time.monotonic()
         was_open = None
         errors = 0
         while True:
             now = self.clock()
+            if max_minutes and (time.monotonic() - started) / 60 >= max_minutes:
+                return "handoff"
             if not is_open(now):
+                if exit_when_closed and (now.weekday() >= 5 or now.time() >= CLOSE
+                                         or minutes_since_open(now) < -120):
+                    log.info("장 종료(또는 개장까지 2시간 이상) — 실행 종료")
+                    return "closed"
                 if was_open is not False:
                     log.info("장 시간이 아님 (ET %s). 정규장 09:30~16:00 ET 대기 중…", now.strftime("%a %H:%M"))
                     was_open = False

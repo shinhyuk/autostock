@@ -36,6 +36,26 @@ cp .env.example .env        # 키와 한도 입력
 매매 기록은 `data/journal_<mode>.jsonl`, 당일 상태는 `data/state_<mode>.json`에 남고,
 재시작해도 당일 손익과 한도가 이어집니다.
 
+## GitHub Actions로 자동 실행
+
+`.github/workflows/trade.yml`이 평일 13:05 UTC(개장 전)에 봇을 띄웁니다. 러너는 작업당 6시간 제한이
+있어 320분 뒤 스스로 끝나고 다음 실행이 이어받으며, 당일 상태는 `bot-state` 브랜치에 저장됩니다.
+
+저장소 **Settings → Secrets and variables → Actions**에서 설정합니다.
+
+| 종류 | 이름 | 값 |
+|---|---|---|
+| Secret | `ANTHROPIC_API_KEY` | Claude API 키 |
+| Secret | `KIS_APP_KEY`, `KIS_APP_SECRET` | KIS 앱키/시크릿 |
+| Secret | `KIS_ACCOUNT_NO` | 계좌번호 앞 8자리 |
+| Variable | `KIS_ENV` | `demo` 또는 `real` (위 키의 종류) |
+| Variable | `MODE` | `paper` → `kis-demo` → `live` |
+| Variable | `USDKRW`, `FEE_PCT` 등 | `.env.example`의 항목 (없으면 기본값) |
+| Variable | `LIVE_TRADING_CONFIRM` | 실계좌일 때만 `I_UNDERSTAND` |
+| Variable | `BOT_ENABLED` | `true`일 때만 실행됨 (끄려면 삭제) |
+
+Actions 탭의 **trade → Run workflow**로 수동 실행도 됩니다. 워크플로는 기본 브랜치에 있어야 예약 실행됩니다.
+
 ## 기본 한도 (`.env`에서 변경)
 
 | 항목 | 기본값 |

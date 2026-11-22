@@ -254,3 +254,13 @@ def test_kis_unfilled_order_is_cancelled(kis):
     assert b.buy("SOXL", 5, 30.0) is None
     cancel = [x for x in c.http.calls if x[0] == "order-rvsecncl"]
     assert cancel and cancel[0][1] == "VTTT1004U" and cancel[0][2]["ORGN_ODNO"] == "77"
+
+
+def test_run_exit_modes(rig):
+    e, m, _ = rig(at=(16, 5))
+    assert e.run(exit_when_closed=True) == "closed"                  # 장 종료 후
+    e, m, _ = rig(at=(5, 0))
+    assert e.run(exit_when_closed=True) == "closed"                  # 개장 4시간 반 전
+    e, m, _ = rig(at=(11, 0))
+    e.sleep = lambda s: None
+    assert e.run(max_minutes=1e-9, exit_when_closed=True) == "handoff"

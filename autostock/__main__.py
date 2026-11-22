@@ -17,6 +17,9 @@ def main() -> int:
                     help="rule = API 비용 없이 단순 규칙으로 배선 점검")
     ap.add_argument("--simulate", type=int, metavar="MINUTES", default=0,
                     help="가짜 랜덤 시세로 N분을 빠르게 돌려보기 (증권사/장 시간 불필요)")
+    ap.add_argument("--max-minutes", type=float, default=0,
+                    help="이 시간이 지나면 종료 코드 75로 끝냄 (다음 실행이 이어받는 용도)")
+    ap.add_argument("--exit-when-closed", action="store_true", help="장이 끝나면 대기하지 않고 종료")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
@@ -70,7 +73,8 @@ def main() -> int:
         cfg.mode, f"{cfg.capital_krw:,.0f}", cfg.capital_usd, f"{cfg.daily_target_krw:,.0f}",
         f"{cfg.daily_max_loss_krw:,.0f}", cfg.model if a.brain == "claude" else "rule")
     try:
-        eng.run()
+        if eng.run(a.max_minutes, a.exit_when_closed) == "handoff":
+            return 75
     except KeyboardInterrupt:
         print("\n중단됨. 보유 포지션:", eng.st.open or "없음")
     return 0

@@ -1,0 +1,88 @@
+name: trade
+
+# 평일 미국 정규장 동안 봇을 돌린다.
+# GitHub 호스팅 러너는 작업당 6시간 제한이라 6.5시간짜리 정규장을 한 번에 못 돌린다.
+# 그래서 봇이 320분 뒤 종료 코드 75로 끝나면 같은 워크플로를 다시 띄워 이어받는다.
+# 당일 상태(손익·한도·보유 포지션)는 bot-state 브랜치에 저장해 다음 실행이 읽는다.
+
+on:
+  schedule:
+    - cron: "5 13 * * 1-5"      # 13:05 UTC. 개장은 13:30(서머타임) 또는 14:30 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: trade
+  cancel-in-progress: false
+
+permissions:
+  contents: write               # bot-state 브랜치에 상태 저장
+  actions: write                # 이어받기용 재실행
+
+jobs:
+  trade:
+    if: vars.BOT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore state
+        run: |
+          if git fetch origin bot-state:bot-state 2>/dev/null; then
+            git worktree add data bot-state
+          else
+            git worktree add --orphan -b bot-state data
+          fi
+
+      - name: Run bot
+        id: bot
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO: ${{ secrets.KIS_ACCOUNT_NO }}
+          KIS_ACCOUNT_PRODUCT: ${{ vars.KIS_ACCOUNT_PRODUCT }}
+          KIS_ENV: ${{ vars.KIS_ENV }}
+          MODE: ${{ vars.MODE }}
+          LIVE_TRADING_CONFIRM: ${{ vars.LIVE_TRADING_CONFIRM }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
+          CLAUDE_EFFORT: ${{ vars.CLAUDE_EFFORT }}
+          DECISION_INTERVAL_SEC: ${{ vars.DECISION_INTERVAL_SEC }}
+          CAPITAL_KRW: ${{ vars.CAPITAL_KRW }}
+          DAILY_TARGET_KRW: ${{ vars.DAILY_TARGET_KRW }}
+          DAILY_MAX_LOSS_KRW: ${{ vars.DAILY_MAX_LOSS_KRW }}
+          USDKRW: ${{ vars.USDKRW }}
+          FEE_PCT: ${{ vars.FEE_PCT }}
+          MAX_STOP_LOSS_PCT: ${{ vars.MAX_STOP_LOSS_PCT }}
+          MAX_TRADES_PER_DAY: ${{ vars.MAX_TRADES_PER_DAY }}
+        run: |
+          set +e
+          python -m autostock --max-minutes 320 --exit-when-closed
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Save state
+        if: always()
+        run: |
+          cd data
+          printf 'kis_token_*.json\n*.tmp\n' > .gitignore    # 접근 토큰은 절대 커밋하지 않는다
+          git add -A
+          git -c user.name=autostock-bot -c user.email=autostock-bot@users.noreply.github.com \
+            commit -qm "state $(date -u +%FT%TZ)" || exit 0
+          git push origin bot-state
+
+      - name: Hand off to next run
+        if: steps.bot.outputs.code == '75'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run trade.yml --ref "$GITHUB_REF_NAME"
+
+      - name: Fail if bot crashed
+        if: steps.bot.outputs.code != '0' && steps.bot.outputs.code != '75'
+        run: exit 1
