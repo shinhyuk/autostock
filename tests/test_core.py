@@ -316,7 +316,7 @@ def test_web_page_renders_and_escapes(rig):
     e._journal("decision", action="HOLD", symbol="", confidence=0.5, reason="<script>x</script>")
     cfg = e.cfg
     page = web.render(cfg, "paper", "tok")
-    assert "최근 AI 판단" in page and "&lt;script&gt;" in page and "<script>x" not in page
+    assert "AI 판단 기록" in page and "&lt;script&gt;" in page and "<script>x" not in page
     assert "아직 기록이 없습니다" in web.render(cfg, "live", "tok")
 
 

@@ -49,6 +49,8 @@ class Engine:
         self.risk = Risk(cfg)
         self.state_path = os.path.join(cfg.data_dir, f"state_{cfg.mode}.json")
         self.log_path = os.path.join(cfg.data_dir, f"journal_{cfg.mode}.jsonl")
+        self.live_path = os.path.join(cfg.data_dir, f"live_{cfg.mode}.json")
+        self._last_price: float | None = None
         self.st = DayState.load(self.state_path)
         self.last_decision_at: datetime | None = None
         self.recent_decisions: list[dict] = []
@@ -62,6 +64,20 @@ class Engine:
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": self.clock().isoformat(), "kind": kind, **data},
                                ensure_ascii=False) + "\n")
+
+    def _beat(self, now: datetime, status: str) -> None:
+        """결과 페이지가 읽는 현재 상태(봇이 살아 있는지, 현재가, 평가손익)."""
+        t, last = self.st.open, self._last_price
+        data = {"ts": now.isoformat(), "status": status, "model": getattr(self.cfg, "model", ""),
+                "last": last, "unrealized_usd": round(self.risk.unrealized(t, last), 2) if t and last else None}
+        try:
+            os.makedirs(self.cfg.data_dir, exist_ok=True)
+            tmp = self.live_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, self.live_path)
+        except OSError:
+            pass
 
     def _krw(self, usd: float) -> str:
         return f"{usd * self.cfg.usdkrw:+,.0f}원"
@@ -293,7 +309,7 @@ class Engine:
         last = None
         if t := self.st.open:                        # 1) 보유 포지션 보호가 항상 먼저
             watch = t.symbol
-            last = self.market.quote(t.symbol).last
+            last = self._last_price = self.market.quote(t.symbol).last
             if last > t.peak_price:
                 t.peak_price = last
                 self.st.save(self.state_path)
@@ -340,6 +356,7 @@ class Engine:
                 if was_open is not False:
                     log.info("장 시간이 아님 (ET %s). 정규장 09:30~16:00 ET 대기 중…", now.strftime("%a %H:%M"))
                     was_open = False
+                self._beat(now, "closed")
                 self.sleep(30)
                 continue
             if was_open is not True:
@@ -348,9 +365,11 @@ class Engine:
             try:
                 self.tick()
                 errors = 0
+                self._beat(now, "halted" if self.st.halted and not self.st.open else "running")
             except Exception:                        # 시세/주문 오류로 루프가 죽으면 포지션이 방치된다
                 errors += 1
                 log.exception("틱 처리 오류 (%d회 연속)", errors)
+                self._beat(now, "error")
                 if errors >= 30:
                     log.critical("오류가 계속됨 — 계좌를 직접 확인하세요. 보유: %s", self.st.open)
             self.sleep(self.cfg.tick_sec)
