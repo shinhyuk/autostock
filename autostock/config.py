@@ -20,6 +20,19 @@ def _s(name: str, default: str = "") -> str:
 
 
 @dataclass(frozen=True)
+class KisCreds:
+    env: str                 # demo | real
+    app_key: str = ""
+    app_secret: str = ""
+    account_no: str = ""
+    account_product: str = "01"
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.app_key and self.app_secret)
+
+
+@dataclass(frozen=True)
 class Settings:
     mode: str = "paper"                 # paper | kis-demo | live
     live_confirm: str = ""
@@ -28,11 +41,8 @@ class Settings:
     effort: str = "medium"
     decision_interval_sec: int = 180
 
-    kis_app_key: str = ""
-    kis_app_secret: str = ""
-    kis_account_no: str = ""
-    kis_account_product: str = "01"
-    kis_env: str = "demo"               # demo | real
+    kis_real: KisCreds = KisCreds("real")
+    kis_demo: KisCreds = KisCreds("demo")
 
     capital_krw: float = 1_000_000
     daily_target_krw: float = 100_000
@@ -72,6 +82,15 @@ class Settings:
         return self.daily_max_loss_krw / self.usdkrw
 
 
+def _creds(env: str) -> KisCreds:
+    """KIS_REAL_* / KIS_DEMO_* 를 읽는다. 예전 방식(KIS_APP_KEY + KIS_ENV)도 받아준다."""
+    p = f"KIS_{env.upper()}_"
+    if not _s(p + "APP_KEY") and _s("KIS_APP_KEY") and _s("KIS_ENV", "demo") == env:
+        p = "KIS_"
+    return KisCreds(env, _s(p + "APP_KEY"), _s(p + "APP_SECRET"), _s(p + "ACCOUNT_NO"),
+                    _s(p + "ACCOUNT_PRODUCT", "01"))
+
+
 def load() -> Settings:
     load_dotenv()
     return Settings(
@@ -80,11 +99,8 @@ def load() -> Settings:
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
         effort=_s("CLAUDE_EFFORT", "medium"),
         decision_interval_sec=_i("DECISION_INTERVAL_SEC", 180),
-        kis_app_key=_s("KIS_APP_KEY"),
-        kis_app_secret=_s("KIS_APP_SECRET"),
-        kis_account_no=_s("KIS_ACCOUNT_NO"),
-        kis_account_product=_s("KIS_ACCOUNT_PRODUCT", "01"),
-        kis_env=_s("KIS_ENV", "demo"),
+        kis_real=_creds("real"),
+        kis_demo=_creds("demo"),
         capital_krw=_f("CAPITAL_KRW", 1_000_000),
         daily_target_krw=_f("DAILY_TARGET_KRW", 100_000),
         daily_max_loss_krw=_f("DAILY_MAX_LOSS_KRW", 50_000),

@@ -264,3 +264,24 @@ def test_run_exit_modes(rig):
     e, m, _ = rig(at=(11, 0))
     e.sleep = lambda s: None
     assert e.run(max_minutes=1e-9, exit_when_closed=True) == "handoff"
+
+
+def test_kis_credential_profiles(monkeypatch):
+    from autostock import config
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+    for k in ("KIS_APP_KEY", "KIS_APP_SECRET", "KIS_ENV", "KIS_REAL_APP_KEY", "KIS_DEMO_APP_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "R")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "RS")
+    monkeypatch.setenv("KIS_DEMO_APP_KEY", "D")
+    monkeypatch.setenv("KIS_DEMO_APP_SECRET", "DS")
+    monkeypatch.setenv("KIS_DEMO_ACCOUNT_NO", "50001234")
+    c = config.load()
+    assert c.kis_real.ok and c.kis_real.app_key == "R" and c.kis_real.env == "real"
+    assert c.kis_demo.app_key == "D" and c.kis_demo.account_no == "50001234"
+    monkeypatch.delenv("KIS_DEMO_APP_KEY")                 # 예전 방식도 인식
+    monkeypatch.setenv("KIS_APP_KEY", "OLD")
+    monkeypatch.setenv("KIS_APP_SECRET", "S")
+    monkeypatch.setenv("KIS_ENV", "demo")
+    c = config.load()
+    assert c.kis_demo.app_key == "OLD" and c.kis_real.app_key == "R"

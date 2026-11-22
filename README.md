@@ -18,19 +18,29 @@ cp .env.example .env        # 키와 한도 입력
    ```bash
    python -m autostock --simulate 390 --brain rule
    ```
-2. **paper** — KIS 실시간 시세 + Claude 판단 + 가상 체결. 주문은 나가지 않습니다.
-   `.env`에 `ANTHROPIC_API_KEY`, `KIS_APP_KEY`, `KIS_APP_SECRET` 필요.
+2. **연결 점검** — `.env`에 키를 넣은 뒤, 주문 없이 Claude/KIS 연결만 확인합니다.
    ```bash
-   python -m autostock
+   python -m autostock --check
    ```
-3. **kis-demo** — KIS 모의투자 계좌로 실제 주문 API 호출 (`KIS_ENV=demo`, 계좌번호 입력).
-   ```bash
-   python -m autostock --mode kis-demo
-   ```
-4. **live** — 실계좌. `.env`에 `KIS_ENV=real`, `LIVE_TRADING_CONFIRM=I_UNDERSTAND` 둘 다 있어야 실행됩니다.
-   ```bash
-   python -m autostock --mode live
-   ```
+3. **paper** — KIS 실시간 시세 + Claude 판단 + 가상 체결. 주문은 나가지 않습니다.
+4. **kis-demo** — KIS 모의투자 계좌로 실제 주문 API 호출 (`KIS_DEMO_*` 키 필요).
+5. **live** — 실계좌 (`KIS_REAL_*` 키와 `LIVE_TRADING_CONFIRM=I_UNDERSTAND` 필요).
+
+모드는 `.env`의 `MODE`로 정하고 `python -m autostock`으로 실행합니다. 시세는 실전 키가 있으면
+실전 서버에서 가져옵니다(시세 조회는 주문과 무관).
+
+## 서버에서 운영 (`./bot`)
+
+```bash
+./bot setup      # 자동 실행 + 5분마다 GitHub 최신 코드 자동 반영 (처음 한 번)
+./bot check      # 키/연결 점검
+./bot status     # 실행 상태, 오늘 손익, 최근 로그
+./bot logs       # 실시간 로그
+./bot mode kis-demo   # 모드 변경 (paper | kis-demo | live) 후 재시작
+./bot update     # 지금 바로 최신 코드 반영
+```
+
+자동 업데이트와 모드 변경은 보유 포지션이 있으면 미뤄집니다.
 
 정규장은 09:30~16:00 ET (한국시간 23:30~06:00, 서머타임 중 22:30~05:00)이며 그 외 시간에는 대기합니다.
 매매 기록은 `data/journal_<mode>.jsonl`, 당일 상태는 `data/state_<mode>.json`에 남고,
@@ -46,9 +56,8 @@ cp .env.example .env        # 키와 한도 입력
 | 종류 | 이름 | 값 |
 |---|---|---|
 | Secret | `ANTHROPIC_API_KEY` | Claude API 키 |
-| Secret | `KIS_APP_KEY`, `KIS_APP_SECRET` | KIS 앱키/시크릿 |
-| Secret | `KIS_ACCOUNT_NO` | 계좌번호 앞 8자리 |
-| Variable | `KIS_ENV` | `demo` 또는 `real` (위 키의 종류) |
+| Secret | `KIS_REAL_APP_KEY`, `KIS_REAL_APP_SECRET`, `KIS_REAL_ACCOUNT_NO` | 실전 앱키/시크릿/계좌 앞 8자리 |
+| Secret | `KIS_DEMO_APP_KEY`, `KIS_DEMO_APP_SECRET`, `KIS_DEMO_ACCOUNT_NO` | 모의투자 앱키/시크릿/계좌 앞 8자리 |
 | Variable | `MODE` | `paper` → `kis-demo` → `live` |
 | Variable | `USDKRW`, `FEE_PCT` 등 | `.env.example`의 항목 (없으면 기본값) |
 | Variable | `LIVE_TRADING_CONFIRM` | 실계좌일 때만 `I_UNDERSTAND` |

@@ -10,6 +10,50 @@ from .brain import ClaudeBrain, RuleBrain
 from .engine import Engine
 
 
+def check(cfg, market, client) -> int:
+    """Claude 키, KIS 시세, 계좌 조회를 차례로 점검한다. 주문은 내지 않는다."""
+    from .brokers.kis import KISBroker
+    bad = 0
+
+    def step(name, fn):
+        nonlocal bad
+        try:
+            print(f"[OK]   {name}: {fn()}")
+        except Exception as e:               # 점검 도구이므로 어떤 오류든 보여주고 계속
+            bad += 1
+            print(f"[FAIL] {name}: {type(e).__name__}: {e}")
+
+    def claude():
+        import anthropic
+        return anthropic.Anthropic().models.retrieve(cfg.model).display_name
+
+    def bars():
+        b = market.bars(cfg.bull)
+        if not b:
+            raise RuntimeError("분봉이 비어 있음")
+        return f"{len(b)}개, 마지막 {b[-1].ts:%m-%d %H:%M} ET 종가 {b[-1].close}"
+
+    def account(c):
+        def run():
+            if len(c.account_no) != 8:
+                raise ValueError("계좌번호 앞 8자리가 필요")
+            br = KISBroker(client(c), c.account_no, c.account_product)
+            return {s: (p.qty if (p := br.position(s)) else 0) for s in cfg.symbols}
+        return run
+
+    step("Claude API 키 / 모델", claude)
+    step(f"KIS 시세 ({market.c.env} 서버) {cfg.bull} 현재가", lambda: market.quote(cfg.bull))
+    step(f"KIS 시세 {cfg.bear} 현재가", lambda: market.quote(cfg.bear))
+    step("KIS 1분봉", bars)
+    for c in (cfg.kis_demo, cfg.kis_real):
+        if c.ok:
+            step(f"KIS {'모의투자' if c.env == 'demo' else '실전'} 계좌 잔고 조회", account(c))
+        else:
+            print(f"[--]   KIS {c.env} 키 없음 (건너뜀)")
+    print("\n모두 정상입니다." if not bad else f"\n{bad}개 항목 실패.")
+    return 1 if bad else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="autostock", description="SOXL/SOXS AI 단타 자동매매")
     ap.add_argument("--mode", choices=["paper", "kis-demo", "live"], help=".env의 MODE 대신 사용")
@@ -20,6 +64,7 @@ def main() -> int:
     ap.add_argument("--max-minutes", type=float, default=0,
                     help="이 시간이 지나면 종료 코드 75로 끝냄 (다음 실행이 이어받는 용도)")
     ap.add_argument("--exit-when-closed", action="store_true", help="장이 끝나면 대기하지 않고 종료")
+    ap.add_argument("--check", action="store_true", help="키와 연결만 점검하고 종료 (주문 없음)")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
@@ -30,7 +75,7 @@ def main() -> int:
     cfg = config.load()
     if a.mode:
         cfg = dataclasses.replace(cfg, mode=a.mode)
-    brain = RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
+    brain = None if a.check else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
 
     if a.simulate:
         from .brokers.paper import FakeMarket, PaperBroker
@@ -48,24 +93,36 @@ def main() -> int:
 
     from .brokers.kis import KISBroker, KISClient, KISMarket
     from .brokers.paper import PaperBroker
-    if cfg.mode == "live":
-        if cfg.live_confirm != "I_UNDERSTAND" or cfg.kis_env != "real":
-            print("실계좌 모드는 .env에 LIVE_TRADING_CONFIRM=I_UNDERSTAND 와 KIS_ENV=real 이 모두 필요합니다.",
-                  file=sys.stderr)
-            return 2
-    elif cfg.mode == "kis-demo" and cfg.kis_env != "demo":
-        print("kis-demo 모드는 KIS_ENV=demo(모의투자 키)여야 합니다.", file=sys.stderr)
+    real, demo = cfg.kis_real, cfg.kis_demo
+    if cfg.mode == "live" and cfg.live_confirm != "I_UNDERSTAND":
+        print("실계좌 모드는 .env에 LIVE_TRADING_CONFIRM=I_UNDERSTAND 가 필요합니다.", file=sys.stderr)
+        return 2
+    need = {"live": real, "kis-demo": demo}.get(cfg.mode)
+    if need and not (need.ok and need.account_no):
+        print(f"{cfg.mode} 모드는 .env에 KIS_{need.env.upper()}_APP_KEY / _APP_SECRET / _ACCOUNT_NO 가 필요합니다.",
+              file=sys.stderr)
+        return 2
+    if not (real.ok or demo.ok):
+        print(".env에 KIS 키가 없습니다 (KIS_REAL_* 또는 KIS_DEMO_*).", file=sys.stderr)
         return 2
 
-    client = KISClient(cfg.kis_app_key, cfg.kis_app_secret, cfg.kis_env, cfg.data_dir)
-    market = KISMarket(client)
+    def client(c):
+        return KISClient(c.app_key, c.app_secret, c.env, cfg.data_dir)
+
+    # 시세는 실전 키가 있으면 실전 서버에서 가져온다(분봉 조회는 모의투자 서버가 지원하지 않을 수 있음).
+    # 시세 조회는 주문과 무관하므로 실전 키를 써도 돈이 움직이지 않는다.
+    md = client(real if real.ok else demo)
+    market = KISMarket(md)
+    if a.check:
+        return check(cfg, market, client)
     if cfg.mode == "paper":
         broker = PaperBroker()
         eng = Engine(cfg, market, broker, brain)
         if t := eng.st.open:              # 가상 포지션은 상태 파일에서 복원
             broker.restore(t.symbol, t.qty, t.entry_price)
     else:
-        broker = KISBroker(client, cfg.kis_account_no, cfg.kis_account_product)
+        c = need
+        broker = KISBroker(md if c.env == md.env else client(c), c.account_no, c.account_product)
         eng = Engine(cfg, market, broker, brain)
 
     logging.getLogger("engine").info(

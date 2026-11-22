@@ -45,11 +45,12 @@ jobs:
         id: bot
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
-          KIS_ACCOUNT_NO: ${{ secrets.KIS_ACCOUNT_NO }}
-          KIS_ACCOUNT_PRODUCT: ${{ vars.KIS_ACCOUNT_PRODUCT }}
-          KIS_ENV: ${{ vars.KIS_ENV }}
+          KIS_REAL_APP_KEY: ${{ secrets.KIS_REAL_APP_KEY }}
+          KIS_REAL_APP_SECRET: ${{ secrets.KIS_REAL_APP_SECRET }}
+          KIS_REAL_ACCOUNT_NO: ${{ secrets.KIS_REAL_ACCOUNT_NO }}
+          KIS_DEMO_APP_KEY: ${{ secrets.KIS_DEMO_APP_KEY }}
+          KIS_DEMO_APP_SECRET: ${{ secrets.KIS_DEMO_APP_SECRET }}
+          KIS_DEMO_ACCOUNT_NO: ${{ secrets.KIS_DEMO_ACCOUNT_NO }}
           MODE: ${{ vars.MODE }}
           LIVE_TRADING_CONFIRM: ${{ vars.LIVE_TRADING_CONFIRM }}
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
