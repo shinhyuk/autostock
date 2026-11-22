@@ -107,7 +107,7 @@ def main() -> int:
 
     if a.simulate:
         from .brokers.paper import FakeMarket, PaperBroker
-        cfg = dataclasses.replace(cfg, mode="sim", decision_interval_sec=max(cfg.decision_interval_sec, 60))
+        cfg = dataclasses.replace(cfg, mode="sim", context=(), decision_interval_sec=max(cfg.decision_interval_sec, 60))
         mkt = FakeMarket(cfg.bull, cfg.bear, seed=a.seed)
         eng = Engine(cfg, mkt, PaperBroker(), brain, clock=lambda: mkt.now)
         eng.st.__init__()                 # 시뮬레이션은 매번 새 상태로

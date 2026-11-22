@@ -24,6 +24,24 @@ except FileNotFoundError: sys.exit(1)' "$DIR/data/state_$m.json"; then return 0;
   return 1
 }
 
+set_mode() {       # .env 의 MODE 와 실계좌 확인값을 바꾼다
+  local confirm=""
+  [[ ,$1, == *,live,* ]] && confirm=I_UNDERSTAND
+  sed -i -E "s/^MODE=.*/MODE=$1/; s/^LIVE_TRADING_CONFIRM=.*/LIVE_TRADING_CONFIRM=$confirm/" .env
+}
+sync_mode() {      # 저장소의 deploy/mode 가 바뀌었으면 서버에 적용 (폰에서 모드를 바꾸기 위한 장치)
+  [[ -f deploy/mode ]] || return 0
+  local want; want=$(tr -d ' \n\r' < deploy/mode)
+  [[ $want =~ ^(paper|kis-demo|live)(,(paper|kis-demo|live))*$ ]] || return 0
+  [[ $(cat data/.applied_mode 2>/dev/null) == "$want" ]] && return 0
+  if has_position; then echo "보유 포지션이 있어 모드 변경($want)을 미룹니다"; return 0; fi
+  mkdir -p data
+  set_mode "$want"
+  echo "$want" > data/.applied_mode
+  sudo systemctl restart autostock
+  echo "저장소 설정에 따라 모드 → $want"
+}
+
 case "${1:-}" in
 setup)
   sudo tee /etc/systemd/system/autostock.service >/dev/null <<EOF
@@ -108,14 +126,14 @@ mode)
     [[ $a == LIVE ]] || { echo "취소됨"; exit 1; }
     confirm=I_UNDERSTAND
   fi
-  sed -i -E "s/^MODE=.*/MODE=$m/; s/^LIVE_TRADING_CONFIRM=.*/LIVE_TRADING_CONFIRM=$confirm/" .env
+  set_mode "$m"
   sudo systemctl restart autostock
   echo "모드 → $m. './bot logs' 로 확인하세요."
   ;;
 update)
   br=$(git rev-parse --abbrev-ref HEAD)
   git fetch -q origin "$br"
-  [[ $(git rev-parse HEAD) == $(git rev-parse FETCH_HEAD) ]] && { echo "이미 최신"; exit 0; }
+  if [[ $(git rev-parse HEAD) == $(git rev-parse FETCH_HEAD) ]]; then sync_mode; echo "이미 최신"; exit 0; fi
   if [[ ${2:-} != --force ]] && has_position; then echo "보유 포지션이 있어 업데이트를 미룹니다"; exit 0; fi
   git merge -q --ff-only FETCH_HEAD
   "$DIR/.venv/bin/pip" install -q -r requirements.txt

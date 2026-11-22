@@ -181,7 +181,7 @@ class Engine:
         market = {}
         for s in c.symbols:
             q, bars = self.market.quote(s), self.market.bars(s, 120)
-            today = [b for b in bars if b.ts.date() == bars[-1].ts.date()] if bars else []
+            today = [b for b in bars if b.ts.date() == now.date() and (b.ts.hour, b.ts.minute) >= (9, 30)]
             market[s] = {
                 "last": q.last,
                 "day_change_pct": round((q.last / q.prev_close - 1) * 100, 2) if q.prev_close else None,
@@ -195,6 +195,19 @@ class Engine:
                     "columns": "HH:MM,open,high,low,close,volume",
                     "rows": [f"{b.ts:%H:%M},{b.open:.2f},{b.high:.2f},{b.low:.2f},{b.close:.2f},{b.volume:.0f}"
                              for b in bars[-40:]]}
+        sector = {}                                  # 주변 종목: 실패해도 판단은 계속한다
+        for i, s in enumerate(c.context):
+            try:
+                q = self.market.quote(s)
+                row = {"last": q.last,
+                       "day_change_pct": round((q.last / q.prev_close - 1) * 100, 2) if q.prev_close else None}
+                if i < c.context_bars:
+                    b = self.market.bars(s, 120)
+                    full = indicators.summarize(b)
+                    row.update({k: full[k] for k in ("ret_5m_pct", "ret_15m_pct", "ret_60m_pct", "rsi14")})
+                sector[s] = row
+            except Exception as e:
+                log.warning("주변 종목 %s 시세 실패: %s", s, e)
         pos = None
         if t := st.open:
             last = market[t.symbol]["last"]
@@ -208,6 +221,7 @@ class Engine:
             "minutes_since_open": round(minutes_since_open(now)),
             "minutes_to_close": round(minutes_to_close(now)),
             "market": market,
+            "sector": sector,
             "account": {
                 "capital_usd": round(c.capital_usd, 2),
                 "day_realized_usd": round(st.realized_usd, 2),

@@ -33,13 +33,13 @@ def rsi(values: list[float], period: int = 14) -> float | None:
 
 
 def vwap(bars: list[Bar]) -> float | None:
-    """마지막 봉과 같은 날짜의 봉만으로 계산한 당일 VWAP."""
+    """마지막 봉과 같은 날짜의 정규장(09:30 이후) 봉만으로 계산한 당일 VWAP."""
     if not bars:
         return None
     day = bars[-1].ts.date()
     pv = vol = 0.0
     for b in bars:
-        if b.ts.date() == day:
+        if b.ts.date() == day and (b.ts.hour, b.ts.minute) >= (9, 30):
             pv += (b.high + b.low + b.close) / 3 * b.volume
             vol += b.volume
     return pv / vol if vol else None

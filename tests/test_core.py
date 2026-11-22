@@ -329,3 +329,12 @@ def test_preflight_gates_real_order_modes(rig, monkeypatch):
     e2.tick()
     assert e2.st.halted == "주문 테스트 실패" and not brain2.snaps
     assert not e2.st.roll(e2.st.date) and e2.st.roll("2026-01-06") and e2.st.halted == ""
+
+
+def test_snapshot_includes_sector_context(rig):
+    e, m, brain = rig(context=("NVDA", "SOXX", "AMD", "BROKEN"), context_bars=2)
+    m.px.update(NVDA=180.0, SOXX=250.0, AMD=160.0)
+    e.tick()
+    sec = brain.snaps[0]["sector"]
+    assert set(sec) == {"NVDA", "SOXX", "AMD"}                       # 실패한 종목은 빠지고 판단은 계속
+    assert "ret_15m_pct" in sec["NVDA"] and "ret_15m_pct" not in sec["AMD"]

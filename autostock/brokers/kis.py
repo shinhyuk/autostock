@@ -26,7 +26,7 @@ BASE = {
     "demo": "https://openapivts.koreainvestment.com:29443",
 }
 # SOXL/SOXS는 NYSE Arca 상장 → 시세 코드 AMS, 주문 코드 AMEX
-EXCD_QUOTE = {"SOXL": "AMS", "SOXS": "AMS"}
+EXCD_QUOTE = {"SOXL": "AMS", "SOXS": "AMS", "TSM": "NYS"}     # 표에 없으면 나스닥(NAS)
 EXCD_ORDER = {"SOXL": "AMEX", "SOXS": "AMEX"}
 
 
@@ -121,7 +121,7 @@ class KISMarket:
 
     def quote(self, symbol: str) -> Quote:
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/price", "HHDFS00000300",
-                        {"AUTH": "", "EXCD": EXCD_QUOTE[symbol], "SYMB": symbol})
+                        {"AUTH": "", "EXCD": EXCD_QUOTE.get(symbol, "NAS"), "SYMB": symbol})
         o = j["output"]
         last = _num(o.get("last"))
         if last <= 0:
@@ -131,7 +131,7 @@ class KISMarket:
     def bars(self, symbol: str, n: int = 120) -> list[Bar]:
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice",
                         "HHDFS76950200",
-                        {"AUTH": "", "EXCD": EXCD_QUOTE[symbol], "SYMB": symbol, "NMIN": "1",
+                        {"AUTH": "", "EXCD": EXCD_QUOTE.get(symbol, "NAS"), "SYMB": symbol, "NMIN": "1",
                          "PINC": "1", "NEXT": "", "NREC": str(min(n, 120)), "FILL": "", "KEYB": ""})
         out = []
         for r in j.get("output2") or []:

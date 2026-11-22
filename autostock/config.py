@@ -62,6 +62,9 @@ class Settings:
     fee_pct: float = 0.25
     tick_sec: int = 10
 
+    # 판단 참고용 주변 종목(매매하지 않음). 앞의 context_bars 개는 분봉 추세까지 본다.
+    context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
+    context_bars: int = 2
     bull: str = "SOXL"
     bear: str = "SOXS"
     data_dir: str = "data"
@@ -119,4 +122,6 @@ def load() -> Settings:
         flatten_before_close_min=_i("FLATTEN_BEFORE_CLOSE_MIN", 5),
         fee_pct=_f("FEE_PCT", 0.25),
         tick_sec=_i("TICK_SEC", 10),
+        context=tuple(x.strip().upper() for x in _s("CONTEXT_SYMBOLS", "NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ").split(",")
+                      if x.strip()),
     )
