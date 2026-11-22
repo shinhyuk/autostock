@@ -300,3 +300,17 @@ def test_kis_retries_on_rate_limit(kis):
 
     c.http.get = flaky
     assert KISMarket(c).quote("SOXL").last == 30.10 and n["n"] == 3
+
+
+def test_web_page_renders_and_escapes(rig):
+    from autostock import web
+    e, m, _ = rig(dec(stop=1.0))
+    e.tick()
+    e.st.open = None
+    e._journal("decision", action="HOLD", symbol="", confidence=0.5, reason="<script>x</script>")
+    cfg = dataclasses.replace(e.cfg, mode="paper")
+    import shutil
+    shutil.copy(e.log_path, e.log_path.replace("journal_paper", "journal_paper"))
+    page = web.render(cfg, "paper", "tok")
+    assert "최근 AI 판단" in page and "&lt;script&gt;" in page and "<script>x" not in page
+    assert "아직 기록이 없습니다" in web.render(cfg, "live", "tok")

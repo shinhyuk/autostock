@@ -38,6 +38,7 @@ cp .env.example .env        # 키와 한도 입력
 ./bot logs       # 실시간 로그
 ./bot mode kis-demo   # 모드 변경 (paper | kis-demo | live) 후 재시작
 ./bot update     # 지금 바로 최신 코드 반영
+./bot web        # 결과 웹페이지 켜기 → http://<서버IP>:8080/?k=<토큰> (보안 그룹에서 TCP 8080 허용 필요)
 ```
 
 자동 업데이트와 모드 변경은 보유 포지션이 있으면 미뤄집니다.

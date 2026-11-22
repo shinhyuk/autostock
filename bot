@@ -5,6 +5,7 @@
 #   ./bot status           실행 상태와 오늘 손익
 #   ./bot logs             실시간 로그 (Ctrl+C 로 나가기)
 #   ./bot mode <paper|kis-demo|live>   모드 변경 후 재시작
+#   ./bot web              결과 웹페이지 켜기 (주소 출력)
 #   ./bot update [--force] GitHub 최신 코드 받아서 재시작
 #   ./bot start|stop|restart
 set -euo pipefail
@@ -104,7 +105,38 @@ update)
   git merge -q --ff-only FETCH_HEAD
   "$DIR/.venv/bin/pip" install -q -r requirements.txt
   sudo systemctl restart autostock
+  if systemctl is-enabled -q autostock-web 2>/dev/null; then sudo systemctl restart autostock-web; fi
   echo "업데이트 완료: $(git log -1 --format='%h %s')"
+  ;;
+web)
+  tok=$(grep -E '^WEB_TOKEN=' .env | head -1 | cut -d= -f2 | awk '{print $1}' || true)
+  if [[ ${#tok} -lt 16 ]]; then
+    tok=$($PY -c 'import secrets; print(secrets.token_urlsafe(18))')
+    sed -i '/^WEB_TOKEN=/d' .env
+    printf '\nWEB_TOKEN=%s\n' "$tok" >> .env
+  fi
+  sudo tee /etc/systemd/system/autostock-web.service >/dev/null <<EOF
+[Unit]
+Description=autostock results page
+After=network-online.target
+
+[Service]
+User=$USER
+WorkingDirectory=$DIR
+ExecStart=$PY -m autostock.web
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  sudo systemctl daemon-reload
+  sudo systemctl enable -q autostock-web
+  sudo systemctl restart autostock-web
+  ip=$(curl -s --max-time 5 https://checkip.amazonaws.com || echo "서버IP")
+  echo "결과 페이지 주소 (즐겨찾기 해두세요. 이 주소를 아는 사람은 누구나 볼 수 있습니다):"
+  echo "  http://$ip:8080/?k=$tok"
+  echo "안 열리면 AWS 보안 그룹에서 TCP 8080 인바운드를 허용해야 합니다."
   ;;
 start|stop|restart) sudo systemctl "$1" autostock ;;
 *) sed -n '2,10p' "$0" ;;
