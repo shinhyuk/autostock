@@ -2,6 +2,7 @@
 # 서버 운영용 단축 명령. 폰 브라우저 터미널에서도 짧게 칠 수 있게 만든 것.
 #   ./bot setup            자동 실행 + 자동 업데이트 등록 (처음 한 번)
 #   ./bot check            키/연결 점검 (주문 없음)
+#   ./bot ordertest        현재 모드(kis-demo/live)로 1주 매수→매도 테스트 (장중에만)
 #   ./bot status           실행 상태와 오늘 손익
 #   ./bot logs             실시간 로그 (Ctrl+C 로 나가기)
 #   ./bot mode <paper|kis-demo|live>   모드 변경 후 재시작
@@ -66,6 +67,13 @@ EOF
   echo "등록 완료. './bot status' 로 확인하세요."
   ;;
 check) $PY -m autostock --check ;;
+ordertest)
+  if [[ $(mode) == live ]]; then
+    read -r -p "실계좌에서 SOXL 1주를 실제로 샀다가 팝니다. 계속하려면 LIVE 입력: " a
+    [[ $a == LIVE ]] || { echo "취소됨"; exit 1; }
+  fi
+  $PY -m autostock --order-test
+  ;;
 status)
   echo "모드: $(mode)   서비스: $(systemctl is-active autostock || true)   코드: $(git log -1 --format='%h %s')"
   $PY - "$DIR/data/state_$(mode).json" <<'PY'

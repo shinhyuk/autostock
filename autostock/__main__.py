@@ -54,6 +54,34 @@ def check(cfg, market, client) -> int:
     return 1 if bad else 0
 
 
+def order_test(cfg, market, broker) -> int:
+    """1주 매수 → 즉시 매도로 주문 경로를 확인한다. 수수료와 호가 차이만큼 소액 손실이 난다."""
+    from .market_hours import is_open, now_et
+    sym = cfg.bull
+    if not is_open(now_et()):
+        print("정규장 시간(09:30~16:00 ET, 한국시간 밤 11:30~새벽 6:00)에만 테스트할 수 있습니다.")
+        return 2
+    if broker.position(sym):
+        print(f"이미 {sym} 보유 중이라 테스트하지 않습니다.")
+        return 2
+    last = market.quote(sym).last
+    print(f"[{cfg.mode}] {sym} 현재가 ${last} — 1주 매수 주문…")
+    buy = broker.buy(sym, 1, last)
+    if not buy:
+        print("[FAIL] 매수가 체결되지 않아 취소됐습니다. 잔고(달러/통합증거금)와 해외주식 거래 신청을 확인하세요.")
+        return 1
+    print(f"[OK]   매수 체결 {buy.qty}주 @ ${buy.price}")
+    for attempt in range(3):
+        sell = broker.sell(sym, 1, market.quote(sym).last)
+        if sell:
+            print(f"[OK]   매도 체결 {sell.qty}주 @ ${sell.price}  (차이 ${sell.price - buy.price:+.2f}, 수수료 별도)")
+            print("\n주문 경로 정상입니다.")
+            return 0
+        print(f"매도 미체결, 재시도 {attempt + 1}/3…")
+    print(f"[FAIL] 매도가 체결되지 않았습니다. {sym} 1주가 계좌에 남아 있으니 증권사 앱에서 직접 매도하세요!")
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="autostock", description="SOXL/SOXS AI 단타 자동매매")
     ap.add_argument("--mode", choices=["paper", "kis-demo", "live"], help=".env의 MODE 대신 사용")
@@ -65,6 +93,8 @@ def main() -> int:
                     help="이 시간이 지나면 종료 코드 75로 끝냄 (다음 실행이 이어받는 용도)")
     ap.add_argument("--exit-when-closed", action="store_true", help="장이 끝나면 대기하지 않고 종료")
     ap.add_argument("--check", action="store_true", help="키와 연결만 점검하고 종료 (주문 없음)")
+    ap.add_argument("--order-test", action="store_true",
+                    help="kis-demo/live 모드에서 1주 매수→매도로 주문 경로 확인")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
@@ -75,7 +105,7 @@ def main() -> int:
     cfg = config.load()
     if a.mode:
         cfg = dataclasses.replace(cfg, mode=a.mode)
-    brain = None if a.check else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
+    brain = None if a.check or a.order_test else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
 
     if a.simulate:
         from .brokers.paper import FakeMarket, PaperBroker
@@ -115,6 +145,9 @@ def main() -> int:
     market = KISMarket(md)
     if a.check:
         return check(cfg, market, client)
+    if a.order_test and cfg.mode == "paper":
+        print("주문 테스트는 kis-demo 또는 live 모드에서만 됩니다. 먼저 ./bot mode kis-demo", file=sys.stderr)
+        return 2
     if cfg.mode == "paper":
         broker = PaperBroker()
         eng = Engine(cfg, market, broker, brain)
@@ -123,6 +156,8 @@ def main() -> int:
     else:
         c = need
         broker = KISBroker(md if c.env == md.env else client(c), c.account_no, c.account_product)
+        if a.order_test:
+            return order_test(cfg, market, broker)
         eng = Engine(cfg, market, broker, brain)
 
     logging.getLogger("engine").info(
