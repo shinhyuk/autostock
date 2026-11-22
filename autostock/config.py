@@ -34,7 +34,8 @@ class KisCreds:
 
 @dataclass(frozen=True)
 class Settings:
-    mode: str = "paper"                 # paper | kis-demo | live
+    mode: str = "paper"                 # paper | kis-demo | live (이 프로세스가 돌리는 모드)
+    modes: tuple[str, ...] = ("paper",)  # .env 의 MODE 에 쉼표로 적은 전체 목록 (동시 실행)
     live_confirm: str = ""
 
     model: str = "claude-opus-5-5"
@@ -93,8 +94,10 @@ def _creds(env: str) -> KisCreds:
 
 def load() -> Settings:
     load_dotenv()
+    modes = tuple(m.strip() for m in _s("MODE", "paper").split(",") if m.strip()) or ("paper",)
     return Settings(
-        mode=_s("MODE", "paper"),
+        mode=modes[0],
+        modes=modes,
         live_confirm=_s("LIVE_TRADING_CONFIRM"),
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
         effort=_s("CLAUDE_EFFORT", "medium"),

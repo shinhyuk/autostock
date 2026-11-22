@@ -18,6 +18,29 @@ from .state import DayState, OpenTrade
 log = logging.getLogger("engine")
 
 
+def order_test(cfg: Settings, market: MarketData, broker: Broker, out=log.info) -> bool:
+    """1주 매수 → 즉시 매도로 실제 주문 경로를 확인한다. 수수료와 호가 차이만큼 소액 손실이 난다."""
+    sym = cfg.bull
+    if broker.position(sym):
+        out(f"이미 {sym} 보유 중이라 주문 테스트를 하지 않습니다.")
+        return False
+    last = market.quote(sym).last
+    out(f"[{cfg.mode}] 주문 테스트: {sym} 현재가 ${last} — 1주 매수…")
+    buy = broker.buy(sym, 1, last)
+    if not buy:
+        out("[FAIL] 매수가 체결되지 않아 취소됐습니다. 잔고(달러/통합증거금)와 해외주식 거래 신청을 확인하세요.")
+        return False
+    out(f"[OK]   매수 체결 {buy.qty}주 @ ${buy.price}")
+    for attempt in range(3):
+        sell = broker.sell(sym, 1, market.quote(sym).last)
+        if sell:
+            out(f"[OK]   매도 체결 {sell.qty}주 @ ${sell.price}  (차이 ${sell.price - buy.price:+.2f}, 수수료 별도)")
+            return True
+        out(f"매도 미체결, 재시도 {attempt + 1}/3…")
+    out(f"[FAIL] 매도가 체결되지 않았습니다. {sym} 1주가 계좌에 남아 있습니다.")
+    return False
+
+
 class Engine:
     def __init__(self, cfg: Settings, market: MarketData, broker: Broker, brain,
                  clock: Callable[[], datetime] = now_et, sleep: Callable[[float], None] = time.sleep):
@@ -29,6 +52,7 @@ class Engine:
         self.st = DayState.load(self.state_path)
         self.last_decision_at: datetime | None = None
         self.recent_decisions: list[dict] = []
+        self._waiting_logged = ""
 
     # ── 기록 ────────────────────────────────────────────────
     def _journal(self, kind: str, **data) -> None:
@@ -56,6 +80,40 @@ class Engine:
         elif self.st.open:
             self.st.open.qty = next(p.qty for p in held if p.symbol == self.st.open.symbol)
         self.st.save(self.state_path)
+
+    # ── 실주문 모드의 사전 점검 ─────────────────────────────
+    def _ok_file(self, mode: str) -> str:
+        return os.path.join(self.cfg.data_dir, f"ordertest_{mode}.ok")
+
+    def preflight(self, now: datetime) -> bool:
+        """kis-demo / live 는 1주 왕복 주문 테스트를 통과해야 매매를 시작한다(통과하면 다음부터 생략).
+        live 는 kis-demo 가 함께 돌고 있으면 모의투자 테스트가 먼저 통과할 때까지 기다린다.
+        실패하면 그날은 그 모드의 매매를 하지 않고 다음 거래일에 다시 시도한다."""
+        c = self.cfg
+        if c.mode not in ("kis-demo", "live") or os.path.exists(self._ok_file(c.mode)):
+            return True
+        if self.st.halted or minutes_since_open(now) < c.no_entry_after_open_min:
+            return False
+        if c.mode == "live" and "kis-demo" in c.modes and not os.path.exists(self._ok_file("kis-demo")):
+            if self._waiting_logged != self.st.date:
+                self._waiting_logged = self.st.date
+                log.info("실계좌는 모의투자 주문 테스트가 통과할 때까지 대기합니다.")
+            return False
+        try:
+            ok = order_test(c, self.market, self.broker)
+        except Exception:
+            log.exception("주문 테스트 중 오류")
+            ok = False
+        self._journal("ordertest", ok=ok)
+        if ok:
+            with open(self._ok_file(c.mode), "w") as f:
+                f.write(now.isoformat())
+            log.info("주문 테스트 통과 — %s 매매를 시작합니다.", c.mode)
+        else:
+            self.st.halted = "주문 테스트 실패"
+            log.error("주문 테스트 실패 — 오늘 %s 매매는 하지 않습니다. 다음 거래일에 다시 시도합니다.", c.mode)
+            self.reconcile()         # 테스트로 산 1주가 남았다면 손절/익절/마감청산으로 관리
+        return ok
 
     # ── 주문 ────────────────────────────────────────────────
     def _enter(self, d: Decision, last: float) -> None:
@@ -216,6 +274,8 @@ class Engine:
                 self._close(why, last)
                 return
         if self.st.halted and not self.st.open:
+            return
+        if not self.preflight(now):
             return
         due = (self.last_decision_at is None or
                (now - self.last_decision_at).total_seconds() >= self.cfg.decision_interval_sec)

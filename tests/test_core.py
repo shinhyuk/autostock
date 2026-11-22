@@ -312,3 +312,20 @@ def test_web_page_renders_and_escapes(rig):
     page = web.render(cfg, "paper", "tok")
     assert "최근 AI 판단" in page and "&lt;script&gt;" in page and "<script>x" not in page
     assert "아직 기록이 없습니다" in web.render(cfg, "live", "tok")
+
+
+def test_preflight_gates_real_order_modes(rig, monkeypatch):
+    import os
+    e, m, brain = rig(dec(), mode="live", modes=("kis-demo", "live"))
+    e.tick()
+    assert e.st.open is None and not brain.snaps                    # 모의투자 테스트 통과 전: 대기
+    open(e._ok_file("kis-demo"), "w").close()
+    e.tick()                                                         # 실계좌 테스트(1주 왕복) 후 매매 시작
+    assert os.path.exists(e._ok_file("live")) and e.st.open and e.st.open.qty > 1
+
+    e2, m2, brain2 = rig(dec(), mode="kis-demo", modes=("kis-demo",))
+    os.remove(e2._ok_file("kis-demo"))
+    e2.broker.buy = lambda *a: None                                  # 매수 미체결
+    e2.tick()
+    assert e2.st.halted == "주문 테스트 실패" and not brain2.snaps
+    assert not e2.st.roll(e2.st.date) and e2.st.roll("2026-01-06") and e2.st.halted == ""

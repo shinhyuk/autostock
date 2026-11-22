@@ -7,7 +7,7 @@ import sys
 
 from . import config
 from .brain import ClaudeBrain, RuleBrain
-from .engine import Engine
+from .engine import Engine, order_test
 
 
 def check(cfg, market, client) -> int:
@@ -54,32 +54,24 @@ def check(cfg, market, client) -> int:
     return 1 if bad else 0
 
 
-def order_test(cfg, market, broker) -> int:
-    """1주 매수 → 즉시 매도로 주문 경로를 확인한다. 수수료와 호가 차이만큼 소액 손실이 난다."""
-    from .market_hours import is_open, now_et
-    sym = cfg.bull
-    if not is_open(now_et()):
-        print("정규장 시간(09:30~16:00 ET, 한국시간 밤 11:30~새벽 6:00)에만 테스트할 수 있습니다.")
-        return 2
-    if broker.position(sym):
-        print(f"이미 {sym} 보유 중이라 테스트하지 않습니다.")
-        return 2
-    last = market.quote(sym).last
-    print(f"[{cfg.mode}] {sym} 현재가 ${last} — 1주 매수 주문…")
-    buy = broker.buy(sym, 1, last)
-    if not buy:
-        print("[FAIL] 매수가 체결되지 않아 취소됐습니다. 잔고(달러/통합증거금)와 해외주식 거래 신청을 확인하세요.")
-        return 1
-    print(f"[OK]   매수 체결 {buy.qty}주 @ ${buy.price}")
-    for attempt in range(3):
-        sell = broker.sell(sym, 1, market.quote(sym).last)
-        if sell:
-            print(f"[OK]   매도 체결 {sell.qty}주 @ ${sell.price}  (차이 ${sell.price - buy.price:+.2f}, 수수료 별도)")
-            print("\n주문 경로 정상입니다.")
-            return 0
-        print(f"매도 미체결, 재시도 {attempt + 1}/3…")
-    print(f"[FAIL] 매도가 체결되지 않았습니다. {sym} 1주가 계좌에 남아 있으니 증권사 앱에서 직접 매도하세요!")
-    return 1
+def supervise(modes) -> int:
+    """MODE 에 여러 모드가 있으면 모드마다 프로세스를 하나씩 띄우고, 죽으면 다시 띄운다."""
+    import subprocess
+    import time
+    log = logging.getLogger("supervisor")
+    procs: dict[str, subprocess.Popen] = {}
+    try:
+        while True:
+            for m in modes:
+                p = procs.get(m)
+                if p is None or p.poll() is not None:
+                    if p is not None:
+                        log.warning("%s 프로세스 종료(코드 %s) — 다시 시작", m, p.returncode)
+                    procs[m] = subprocess.Popen([sys.executable, "-m", "autostock", "--mode", m] + sys.argv[1:])
+            time.sleep(15)
+    finally:
+        for p in procs.values():
+            p.terminate()
 
 
 def main() -> int:
@@ -103,8 +95,14 @@ def main() -> int:
                         format="%(asctime)s %(levelname).1s %(name)s  %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     cfg = config.load()
+    bad = [m for m in cfg.modes if m not in ("paper", "kis-demo", "live")]
+    if bad:
+        print(f".env 의 MODE 값이 잘못됐습니다: {bad}", file=sys.stderr)
+        return 2
     if a.mode:
         cfg = dataclasses.replace(cfg, mode=a.mode)
+    elif len(cfg.modes) > 1 and not (a.simulate or a.check or a.order_test):
+        return supervise(cfg.modes)
     brain = None if a.check or a.order_test else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
 
     if a.simulate:
@@ -157,7 +155,13 @@ def main() -> int:
         c = need
         broker = KISBroker(md if c.env == md.env else client(c), c.account_no, c.account_product)
         if a.order_test:
-            return order_test(cfg, market, broker)
+            from .market_hours import is_open, now_et
+            if not is_open(now_et()):
+                print("정규장 시간(09:30~16:00 ET, 한국시간 밤 11:30~새벽 6:00)에만 테스트할 수 있습니다.")
+                return 2
+            ok = order_test(cfg, market, broker, out=print)
+            print("\n주문 경로 정상입니다." if ok else "\n주문 테스트 실패.")
+            return 0 if ok else 1
         eng = Engine(cfg, market, broker, brain)
 
     logging.getLogger("engine").info(

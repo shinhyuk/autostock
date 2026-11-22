@@ -73,7 +73,7 @@ def render(cfg, mode: str, token: str) -> str:
            f"<style>{CSS}</style><main><h1>autostock · {e(cfg.bull)}/{e(cfg.bear)}</h1><nav>"]
     for m, label in MODES.items():
         on = " class=on" if m == mode else ""
-        out.append(f"<a{on} href='/?k={e(token)}&mode={m}'>{label}{' ●' if m == cfg.mode else ''}</a>")
+        out.append(f"<a{on} href='/?k={e(token)}&mode={m}'>{label}{' ●' if m in cfg.modes else ''}</a>")
     out.append("</nav>")
 
     if not state and not events:

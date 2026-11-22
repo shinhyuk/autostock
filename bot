@@ -2,10 +2,10 @@
 # 서버 운영용 단축 명령. 폰 브라우저 터미널에서도 짧게 칠 수 있게 만든 것.
 #   ./bot setup            자동 실행 + 자동 업데이트 등록 (처음 한 번)
 #   ./bot check            키/연결 점검 (주문 없음)
-#   ./bot ordertest        현재 모드(kis-demo/live)로 1주 매수→매도 테스트 (장중에만)
+#   ./bot ordertest [모드] kis-demo/live 로 1주 매수→매도 테스트 (장중에만)
 #   ./bot status           실행 상태와 오늘 손익
 #   ./bot logs             실시간 로그 (Ctrl+C 로 나가기)
-#   ./bot mode <paper|kis-demo|live>   모드 변경 후 재시작
+#   ./bot mode <paper|kis-demo|live>   모드 변경 후 재시작 (동시 실행: ./bot mode kis-demo,live)
 #   ./bot web              결과 웹페이지 켜기 (주소 출력)
 #   ./bot update [--force] GitHub 최신 코드 받아서 재시작
 #   ./bot start|stop|restart
@@ -14,14 +14,14 @@ cd "$(dirname "$(readlink -f "$0")")"
 DIR=$PWD
 PY=$DIR/.venv/bin/python
 mode() { grep -E '^MODE=' .env 2>/dev/null | head -1 | cut -d= -f2 | awk '{print $1}'; }
-has_position() {
-  $PY - "$DIR/data/state_$(mode).json" <<'PY'
-import json, sys
-try:
-    sys.exit(0 if json.load(open(sys.argv[1])).get("open") else 1)
-except FileNotFoundError:
-    sys.exit(1)
-PY
+modes() { mode | tr ',' ' '; }
+has_position() {   # 실행 중인 모드 중 하나라도 포지션을 들고 있으면 참
+  for m in $(modes); do
+    if $PY -c 'import json,sys
+try: sys.exit(0 if json.load(open(sys.argv[1])).get("open") else 1)
+except FileNotFoundError: sys.exit(1)' "$DIR/data/state_$m.json"; then return 0; fi
+  done
+  return 1
 }
 
 case "${1:-}" in
@@ -68,35 +68,42 @@ EOF
   ;;
 check) $PY -m autostock --check ;;
 ordertest)
-  if [[ $(mode) == live ]]; then
+  m=${2:-$(modes | awk '{print $1}')}
+  if [[ $m == live ]]; then
     read -r -p "실계좌에서 SOXL 1주를 실제로 샀다가 팝니다. 계속하려면 LIVE 입력: " a
     [[ $a == LIVE ]] || { echo "취소됨"; exit 1; }
   fi
-  $PY -m autostock --order-test
+  $PY -m autostock --mode "$m" --order-test
   ;;
 status)
   echo "모드: $(mode)   서비스: $(systemctl is-active autostock || true)   코드: $(git log -1 --format='%h %s')"
-  $PY - "$DIR/data/state_$(mode).json" <<'PY'
-import json, sys
+  for m in $(modes); do
+    echo "── $m ──"
+    $PY - "$DIR/data/state_$m.json" "$DIR/data/ordertest_$m.ok" <<'PY' || true
+import json, os, sys
 try:
     s = json.load(open(sys.argv[1]))
 except FileNotFoundError:
     sys.exit("아직 매매 상태 없음 (장이 열린 적 없음)")
 print(f"거래일 {s['date']}  실현손익 ${s['realized_usd']:+.2f}  거래 {s['trades']}회 (승 {s['wins']}/패 {s['losses']})"
       f"  종료사유: {s['halted'] or '-'}")
+if "paper" not in sys.argv[1]:
+    print("주문 테스트:", "통과" if os.path.exists(sys.argv[2]) else "아직")
 print("보유:", s["open"] or "없음")
 for h in s["history"][-8:]:
     print(f"  {h['ts']} {h['symbol']} {h['qty']}주 {h['entry']}→{h['exit']}  ${h['pnl_usd']:+.2f}  {h['reason']}")
 PY
-  journalctl -u autostock -n 5 --no-pager -o cat || true
+  done
+  journalctl -u autostock -n 8 --no-pager -o cat || true
   ;;
 logs) journalctl -u autostock -f -o cat ;;
 mode)
   m=${2:-}
-  [[ $m =~ ^(paper|kis-demo|live)$ ]] || { echo "사용법: ./bot mode paper|kis-demo|live"; exit 1; }
+  [[ $m =~ ^(paper|kis-demo|live)(,(paper|kis-demo|live))*$ ]] || {
+    echo "사용법: ./bot mode paper|kis-demo|live  (여러 개 동시 실행은 쉼표로: kis-demo,live)"; exit 1; }
   if has_position; then echo "보유 포지션이 있어 모드를 바꿀 수 없습니다. 청산된 뒤(장 마감 후) 다시 하세요."; exit 1; fi
   confirm=""
-  if [[ $m == live ]]; then
+  if [[ ,$m, == *,live,* ]]; then
     read -r -p "실계좌에서 실제 돈으로 주문이 나갑니다. 계속하려면 LIVE 라고 입력: " a
     [[ $a == LIVE ]] || { echo "취소됨"; exit 1; }
     confirm=I_UNDERSTAND
