@@ -180,6 +180,19 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     else:
         out.append("<section class=card><span class=mut>없음 (현금 대기)</span></section>")
 
+    # ── 시스템 기록 (주문 테스트 결과, 오류)
+    system = [x for x in events if x.get("kind") in ("ordertest", "error")][-6:][::-1]
+    if system:
+        out.append("<h2>시스템 기록 (한국시간)</h2><section class='card feed'>")
+        for x in system:
+            if x["kind"] == "ordertest":
+                title = f"주문 테스트 {'통과' if x.get('ok') else '실패'}" + (f" ({x.get('attempt')}회차)" if x.get("attempt") else "")
+            else:
+                title = "오류"
+            out.append(f"<div class=row><div class=t>{_kst(x['ts'], '%m-%d %H:%M')[6:]}<br>{_kst(x['ts'], '%m-%d')}</div><div><div class=h><span>{e(title)}</span></div>"
+                       f"<div class=r>{e(str(x.get('detail', '')))}</div></div></div>")
+        out.append("</section>")
+
     # ── 체결
     trades = [x for x in events if x.get("kind") in ("buy", "sell")][-30:][::-1]
     if trades:

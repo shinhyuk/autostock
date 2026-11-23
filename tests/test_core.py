@@ -334,8 +334,15 @@ def test_preflight_gates_real_order_modes(rig, monkeypatch):
     os.remove(e2._ok_file("kis-demo"))
     e2.broker.buy = lambda *a: None                                  # 매수 미체결
     e2.tick()
-    assert e2.st.halted == "주문 테스트 실패" and not brain2.snaps
-    assert not e2.st.roll(e2.st.date) and e2.st.roll("2026-01-06") and e2.st.halted == ""
+    assert e2.st.halted == "" and e2.st.test_attempts == 1 and not brain2.snaps
+    step(e2, m2, 5)
+    assert e2.st.test_attempts == 1                                  # 10분 전에는 재시도 안 함
+    step(e2, m2, 6)
+    step(e2, m2, 11)
+    assert e2.st.halted == "주문 테스트 3회 실패"
+    from autostock import web
+    assert "주문 테스트 실패" in web.render(e2.cfg, "kis-demo", "t")
+    assert e2.st.roll("2026-01-06") and e2.st.halted == "" and e2.st.test_attempts == 0
 
 
 def test_snapshot_includes_sector_context(rig):

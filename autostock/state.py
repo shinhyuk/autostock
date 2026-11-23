@@ -29,6 +29,8 @@ class DayState:
     consecutive_losses: int = 0
     last_loss_ts: str = ""
     last_loss_symbol: str = ""
+    test_attempts: int = 0   # 이번 세션의 주문 테스트 시도 횟수
+    test_last_ts: str = ""
     halted: str = ""         # 비어있지 않으면 당일 신규 진입 중단 사유
     open: OpenTrade | None = None
     history: list[dict] = field(default_factory=list)   # 당일 청산 내역
