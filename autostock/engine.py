@@ -66,6 +66,11 @@ class Engine:
         self.orb: dict[str, dict] = {}               # 세션별 개장 범위와 동조 종목 시가
         self.orb_status = ""
         self._orb_minute: datetime | None = None
+        self._noise_cp: tuple | None = None
+        self.noise_book = None
+        if cfg.noise:
+            from .noise import NoiseBook
+            self.noise_book = NoiseBook(os.path.join(cfg.data_dir, f"noise_{cfg.bull}.json"))
         self.ref_prices: dict[str, float] = {}       # 직전 AI 판단 때의 가격 (급변 감지용)
         self.trigger = "scheduled"
 
@@ -411,6 +416,12 @@ class Engine:
             log.info("개장 %d분 범위: $%.2f ~ $%.2f · 5일 평균 변동폭 %s", c.orb_minutes, o["ll"], o["hh"],
                      f"{o['vol5']:.1f}% ({o['vol_src']})" if o["vol5"] is not None else f"없음 ({o['vol_src']})")
         self._record_day_range(sess, o)
+        done = [b for b in self.market.bars(c.bull, 5) if b.ts < minute]
+        bar = done[-1] if done else None
+        if bar and (bar.close > o["hh"] or bar.close < o["ll"]):
+            o["broke"] = True                        # 보유 중에도 범위 이탈은 기록 (박스권 종료 판단)
+        if c.noise and bar and self._noise_tick(now, sess, o, since, bar):
+            return
         if self.st.open:
             self.orb_status = "보유 중"
             return
@@ -421,15 +432,11 @@ class Engine:
             self.orb_status = (f"오늘 쉼: 5일 평균 변동폭 {o['vol5']:.1f}% < {c.vol_filter_min}% "
                                f"(조용한 장은 가짜 돌파가 많음)")
             return
-        done = [b for b in self.market.bars(c.bull, 5) if b.ts < minute]
-        if not done or (now - done[-1].ts).total_seconds() > 240:
+        if not bar or (now - bar.ts).total_seconds() > 240:
             self.orb_status = "시세 지연"
             return
-        bar = done[-1]
         close = bar.close
         sg = 1 if close > o["hh"] else -1 if close < o["ll"] else 0
-        if sg:
-            o["broke"] = True
         n_orb = self._entries("orb")
         if not sg or since > c.orb_window_min or n_orb >= c.orb_max_trades:
             if c.box and not o["broke"]:
@@ -521,6 +528,67 @@ class Engine:
         except (FileNotFoundError, ValueError):
             pass
         return None, src + " · 기록 부족 → 필터 없이 매매"
+
+    # ── 노이즈 영역 돌파 ────────────────────────────────────
+    def _noise_tick(self, now: datetime, sess, o: dict, since: float, bar) -> bool:
+        """30분마다(개장 후 30, 60, … 분) 노이즈 영역 밖이면 그 방향으로 진입, 영역 안으로 돌아오면 청산.
+        기록도 여기서 남긴다. 이번 분에 할 일을 다 했으면 True (돌파·박스권 판단으로 넘어가지 않음)."""
+        c, book = self.cfg, self.noise_book
+        day = sess.key
+        if "O" not in o:
+            first = [b for b in self.market.bars(c.bull, 120) if b.ts >= sess.open]
+            o["O"] = first[0].open if first and first[0].ts < sess.open + timedelta(minutes=2) else None
+            book.record(day, open_=o["O"])
+        book.record(day, close=bar.close)
+        cp = int(since // c.noise_every) * c.noise_every
+        t = self.st.open
+        holding = bool(t and t.kind == "noise")
+        if t and not holding:
+            return False
+        fresh = cp >= c.noise_every and since - cp < 1.5 and self._noise_cp != (day, cp)
+        if not fresh:
+            if holding:
+                self.orb_status = f"보유 중 (노이즈) · 다음 확인 개장 후 {cp + c.noise_every}분"
+            return holding
+        self._noise_cp = (day, cp)
+        book.record(day, offset=cp, price=bar.close)
+        book.save()
+        sigma = book.sigma(day, cp, c.noise_lookback)
+        base_o = o.get("O")
+        if sigma is None or not base_o:
+            o["noise_note"] = (f"노이즈 기록 부족 ({book.count(day, cp)}/{c.noise_lookback}일)" if sigma is None
+                               else "오늘 시가 없음")
+            return holding
+        pc = book.prev_close(day) or base_o
+        up, lo = max(base_o, pc) * (1 + sigma), min(base_o, pc) * (1 - sigma)
+        px = bar.close
+        want = 1 if px > up else -1 if px < lo else 0
+        o["noise_note"] = f"노이즈 영역 ${lo:.2f}~${up:.2f} (개장 후 {cp}분, {c.bull} ${px:.2f})"
+        if holding:
+            side = 1 if t.symbol == c.bull else -1
+            if (side > 0 and px < up) or (side < 0 and px > lo) or (want and want != side):
+                self._close(f"노이즈 영역 복귀 ({c.bull} ${px:.2f}, 영역 ${lo:.2f}~${up:.2f})",
+                            self.market.quote(t.symbol).last)
+            else:
+                self.orb_status = f"보유 중 (노이즈) · {o['noise_note']}"
+            return True
+        if not want or self.st.halted or minutes_to_close(now) < c.no_entry_before_close_min:
+            return False
+        if c.vol_filter_min and o.get("vol5") is not None and o["vol5"] < c.vol_filter_min:
+            return False
+        side = c.bull if want > 0 else c.bear
+        if not side:
+            return False
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
+                     stop_loss_pct=c.noise_stop_pct, take_profit_pct=c.orb_take_pct,
+                     reason=f"노이즈 영역 {'위' if want > 0 else '아래'}로 이탈: {o['noise_note']}")
+        self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
+        self._enter(d, self.market.quote(side).last, trail=0, kind="noise")
+        if self.st.open:
+            self.orb_status = f"보유 중 (노이즈) · {o['noise_note']}"
+            self._ai_review(now)
+            return True
+        return False
 
     def _entries(self, kind: str) -> int:
         """이번 세션에 이 종류로 진입한 횟수 (부분 체결로 기록이 나뉘어도 한 번으로 센다)."""
@@ -621,6 +689,8 @@ class Engine:
             elif strat == "orb":
                 o = self.orb.get(sess.key) if sess else None
                 rng = f" · 범위 ${o['ll']:.2f}~${o['hh']:.2f}" if o else ""
+                if o and o.get("noise_note") and c.noise:
+                    rng += f" · {o['noise_note']}"
                 msg = f"{self.orb_status or '대기'}{rng} · {px}"
             else:
                 last = self.recent_decisions[-1] if self.recent_decisions else None
@@ -686,11 +756,18 @@ class Engine:
             finally:
                 self.trigger = "scheduled"
 
+    def bootstrap(self) -> None:
+        if self.noise_book is not None:
+            today = market_hours.now_et().strftime("%Y-%m-%d")
+            if self.noise_book.count(today, self.cfg.noise_every) < self.cfg.noise_lookback:
+                self.noise_book.bootstrap_yahoo(self.cfg.bull, self.cfg.noise_every)
+
     def run(self, max_minutes: float = 0, exit_when_closed: bool = False) -> str:
         """exit_when_closed: 장이 끝났거나 개장이 2시간 넘게 남았으면 "closed"를 반환하고 끝낸다.
         max_minutes: 실행 시간이 이만큼 지나면 "handoff"를 반환한다(다음 실행이 이어받음).
         둘 다 GitHub Actions처럼 실행 시간이 제한된 환경을 위한 것."""
         self.reconcile()
+        self.bootstrap()
         started = time.monotonic()
         was_open = None
         errors = 0

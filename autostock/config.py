@@ -92,6 +92,10 @@ class Settings:
     orb_stop_mode: str = "pct"          # pct(orb_stop_pct) | mid(개장 범위 중간값 — 진입가 대비 %로 바꿔 보유 종목에 적용)
     vol_filter_min: float = 0.0         # 최근 5일 평균 하루 변동폭(%)이 이보다 작으면 그날 정규장 매매 안 함 (0=끔)
     risk_per_trade_pct: float = 0.0     # 손절까지 가면 잃는 돈이 자본의 이 % 가 되도록 수량을 줄임 (0=끔, 전액 매수)
+    noise: bool = False                 # 노이즈 영역 돌파 (30분마다, 지난 14일 같은 시점 평균 움직임 밖이면 추세로 봄)
+    noise_lookback: int = 14
+    noise_every: int = 30
+    noise_stop_pct: float = 6.0         # 30분 확인 사이의 안전 손절
     box: bool = False                   # 범위를 아직 벗어나지 않았으면 경계 근처에서 반대로 매매(박스권)
     box_zone: float = 0.2               # 경계에서 범위 폭의 이 비율 안쪽까지 오면 후보
     box_target: float = 0.8             # 반대 경계 쪽으로 범위 폭의 이 비율 지점에서 익절
@@ -164,6 +168,10 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         orb_stop_mode=_s("ORB_STOP_MODE", "pct").lower(),
         vol_filter_min=_f("VOL_FILTER_MIN", 0.0),
         risk_per_trade_pct=_f("RISK_PER_TRADE_PCT", 0.0),
+        noise=_s("NOISE", "false").lower() in ("true", "1", "yes"),
+        noise_lookback=_i("NOISE_LOOKBACK", 14),
+        noise_every=_i("NOISE_EVERY", 30),
+        noise_stop_pct=_f("NOISE_STOP_PCT", 6.0),
         box=_s("BOX", "false").lower() in ("true", "1", "yes"),
         box_zone=_f("BOX_ZONE", 0.2),
         box_target=_f("BOX_TARGET", 0.8),

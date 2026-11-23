@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import dataclasses
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -917,3 +918,49 @@ def test_volatility_filter_and_risk_sizing(orb_rig, kis):
         {"xymd": "20260105", "open": "30", "high": "33", "low": "30"}, {"xymd": "20260102", "open": "0", "clos": "40", "high": "42", "low": "38"}]})
         if url.endswith("dailyprice") else orig(url, **kw))
     assert KISMarket(c).daily_ranges("SOXL") == [("20260105", 10.0), ("20260102", 10.0)]
+
+
+def test_noise_book_sigma_and_engine_entry_exit(orb_rig, monkeypatch, tmp_path):
+    from autostock.noise import NoiseBook
+    b = NoiseBook(str(tmp_path / "n.json"))
+    for k in range(14):                                              # 14일 모두 30분 시점에 +2% 움직였던 기록
+        day = f"2025-12-{k + 10:02d}"
+        b.record(day, open_=30.0, offset=30, price=30.6, close=30.0)
+    b.save()
+    assert abs(NoiseBook(str(tmp_path / "n.json")).sigma("2026-01-05", 30) - 0.02) < 1e-9
+    assert b.sigma("2026-01-05", 60) is None and b.prev_close("2026-01-05") == 30.0
+
+    e, m, _ = orb_rig(noise=True, max_stop_loss_pct=6)
+    e.noise_book = b
+    m.now = datetime(2026, 1, 5, 10, 0, 20, tzinfo=ET)                # 개장 후 30분 확인 시점
+    m.after = [30.0] * 9 + [30.9]                                    # 9:59 봉 종가 30.9 > 30.0×1.02
+    m.px["SOXL"] = 30.9
+    e.tick()
+    t = e.st.open
+    assert t and t.kind == "noise" and t.symbol == "SOXL" and t.stop_pct == 6.0
+    assert b.days["2026-01-05"]["m"]["30"] == 30.9                   # 오늘 기록도 남김
+    m.now = datetime(2026, 1, 5, 10, 15, 20, tzinfo=ET)              # 확인 시점 아님: 그대로 보유
+    e.tick()
+    assert e.st.open and "노이즈" in e.orb_status
+    for k in range(14):
+        b.record(f"2025-12-{k + 10:02d}", offset=60, price=30.6)
+    m.after = [30.0] * 39 + [30.3]                                   # 10:29 봉 30.3 < 상단 30.6 → 청산
+    m.px["SOXL"] = 30.3
+    m.now = datetime(2026, 1, 5, 10, 30, 20, tzinfo=ET)
+    e.tick()
+    assert e.st.open is None and "노이즈 영역 복귀" in e.st.history[-1]["reason"] and e.st.history[-1]["kind"] == "noise"
+
+
+def test_noise_bootstrap_from_yahoo_payload(tmp_path, monkeypatch):
+    import io
+    import urllib.request
+    from autostock.noise import NoiseBook
+    t0 = int(datetime(2026, 1, 2, 9, 30, tzinfo=ET).timestamp())
+    ts = [t0 + 300 * i for i in range(78)]
+    payload = {"chart": {"result": [{"timestamp": ts, "indicators": {"quote": [{
+        "open": [30.0 + i * 0.01 for i in range(78)], "close": [30.0 + (i + 1) * 0.01 for i in range(78)]}]}}]}}
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: io.BytesIO(json.dumps(payload).encode()))
+    b = NoiseBook(str(tmp_path / "n.json"))
+    assert b.bootstrap_yahoo("SOXL") == 1
+    d = b.days["2026-01-02"]
+    assert d["open"] == 30.0 and d["m"]["30"] == 30.06 and d["m"]["360"] == 30.72 and d["close"] == 30.78

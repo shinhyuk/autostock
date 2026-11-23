@@ -199,6 +199,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    + (f"<b>박스권</b>: 범위 폭 {cfg.box_min_width}% 이상인 날, 범위를 벗어나기 전까지 아래 경계 근처 반등 → {e(cfg.bull)}, "
                       f"위 경계 근처 반락 → {e(cfg.bear)} · 익절은 반대 경계의 {cfg.box_target * 100:.0f}% 지점, 손절은 경계 밖 "
                       f"{cfg.box_stop * 100:.0f}% · 하루 {cfg.box_max}회<br>" if cfg.box else "")
+                   + (f"<b>노이즈 영역</b>: 개장 후 30분마다, 지난 {cfg.noise_lookback}일 같은 시각의 평균 움직임 밖이면 그 방향 매수, "
+                      f"영역 안으로 돌아오면 청산 (확인 사이 안전 손절 {cfg.noise_stop_pct}%)<br>" if cfg.noise else "")
                    + (f"<b>변동성 필터</b>: 최근 5일 평균 하루 변동폭 {cfg.vol_filter_min}% 미만이면 그날 쉼<br>" if cfg.vol_filter_min else "")
                    + (f"<b>매수 금액</b>: 손절 시 자본의 {cfg.risk_per_trade_pct}%만 잃도록 수량 조절<br>" if cfg.risk_per_trade_pct else "")
                    + "Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영)."
