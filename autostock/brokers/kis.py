@@ -216,6 +216,37 @@ class KISBroker:
                 return Position(symbol, int(_num(r["ovrs_cblc_qty"])), _num(r.get("pchs_avg_pric")))
         return None
 
+    def holdings(self) -> list[dict]:
+        """계좌의 미국 주식 보유 전체. 실전은 NASD 가 미국 전체, 모의는 거래소별로 따로 조회해 합친다."""
+        out: dict[str, dict] = {}
+        for ex in (("NASD",) if self.v == "T" else ("NASD", "NYSE", "AMEX")):
+            j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-balance", self.v + "TTS3012R",
+                            {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": ex, "TR_CRCY_CD": "USD",
+                             "CTX_AREA_FK200": "", "CTX_AREA_NK200": ""})
+            for r in j.get("output1") or []:
+                qty = int(_num(r.get("ovrs_cblc_qty")))
+                sym = (r.get("ovrs_pdno") or "").strip()
+                if qty <= 0 or not sym:
+                    continue
+                avg, now = _num(r.get("pchs_avg_pric")), _num(r.get("now_pric2"))
+                out[sym] = {"symbol": sym, "name": (r.get("ovrs_item_name") or "").strip(), "qty": qty, "avg": avg,
+                            "last": now or None,
+                            "value": _num(r.get("ovrs_stck_evlu_amt")) or (now * qty if now else None),
+                            "pnl": _num(r.get("frcr_evlu_pfls_amt")) if r.get("frcr_evlu_pfls_amt") else None,
+                            "pnl_pct": _num(r.get("evlu_pfls_rt")) if r.get("evlu_pfls_rt") else None}
+        return sorted(out.values(), key=lambda x: x["symbol"])
+
+    def buying_power(self, symbol: str, price: float) -> float | None:
+        """주문 가능 외화 금액(USD). 응답 항목을 확인하지 못하면 None."""
+        j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-psamount", self.v + "TTS3007R",
+                        {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": EXCD_ORDER[symbol],
+                         "OVRS_ORD_UNPR": f"{price:.2f}", "ITEM_CD": symbol})
+        o = j.get("output") or {}
+        for k in ("ovrs_ord_psbl_amt", "ord_psbl_frcr_amt", "frcr_ord_psbl_amt1"):
+            if o.get(k):
+                return _num(o[k])
+        return None
+
     def _qty(self, symbol: str) -> int:
         p = self.position(symbol)
         return p.qty if p else 0

@@ -165,6 +165,9 @@ class Engine:
             log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
             if not c.order_test_sell:
                 self.reconcile()     # 테스트로 산 1주를 보유 포지션으로 넘겨받는다
+                if t := self.st.open:
+                    self._journal("buy", symbol=t.symbol, qty=t.qty, price=t.entry_price, stop_pct=t.stop_pct,
+                                  take_pct=t.take_pct, reason="주문 테스트 매수 (보유로 전환)")
         elif any("APBK16" in x for x in lines):
             # 계좌 요건(거래 신청, 교육 이수, 기본예탁금 등) 거절은 재시도해도 같으므로 이번 세션은 멈춘다
             st.halted = "계좌 요건 미충족으로 주문 거절"

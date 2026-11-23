@@ -60,6 +60,13 @@ def next_open(now: datetime) -> datetime | None:
     return min((s.open for s in _sessions(now) if s.open > now), default=None)
 
 
+def last_session(now: datetime) -> Session | None:
+    """지금 진행 중이거나 가장 최근에 열렸던 세션."""
+    past = [s for s in _sessions(now - timedelta(days=4)) if s.open <= now] + \
+           [s for s in _sessions(now) if s.open <= now]
+    return max(past, key=lambda s: s.open, default=None)
+
+
 def is_open(now: datetime) -> bool:
     return current(now) is not None
 

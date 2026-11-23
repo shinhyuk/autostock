@@ -679,3 +679,63 @@ def test_orb_downside_buys_bear_and_respects_max_trades(orb_rig):
     m.now += timedelta(minutes=1)
     e.tick()
     assert e.st.open is None and "모두 사용" in e.orb_status
+
+
+def test_round_trips_pair_buys_and_sells():
+    from autostock import webdata
+    ev = [{"kind": "buy", "symbol": "SOXL", "qty": 10, "price": 30.0, "ts": "2026-01-05T10:00:00-05:00", "reason": "a"},
+          {"kind": "decision", "action": "HOLD"},
+          {"kind": "sell", "symbol": "SOXL", "qty": 4, "price": 31.0, "ts": "2026-01-05T10:10:00-05:00", "pnl_usd": 3.7},
+          {"kind": "sell", "symbol": "SOXL", "qty": 6, "price": 29.0, "ts": "2026-01-05T10:30:00-05:00", "pnl_usd": -6.4},
+          {"kind": "buy", "symbol": "SOXS", "qty": 5, "price": 15.0, "ts": "2026-01-05T11:00:00-05:00"},
+          {"kind": "sell", "symbol": "INTC", "qty": 1, "price": 25.0, "ts": "2026-01-05T11:05:00-05:00", "pnl_usd": 0.1}]
+    trips, still = webdata.round_trips(ev, 0.25)
+    assert [(t["symbol"], t["qty"], t["buy_px"], t["sell_px"]) for t in trips] == \
+        [("SOXL", 4, 30.0, 31.0), ("SOXL", 6, 30.0, 29.0), ("INTC", 1, None, 25.0)]
+    assert trips[0]["hold_min"] == 10 and trips[1]["hold_min"] == 30
+    assert trips[0]["buy_amt"] == 120 and round(trips[0]["fees"], 4) == round((120 + 124) * 0.0025, 4)
+    assert trips[0]["pnl"] == 3.7 and trips[2]["pct"] is None
+    assert still == [{"symbol": "SOXS", "qty": 5, "price": 15.0, "ts": "2026-01-05T11:00:00-05:00", "reason": ""}]
+
+
+def test_bar_store_merges_and_chart_payload(tmp_path, monkeypatch):
+    from autostock import market_hours, webdata
+    store = webdata.BarStore(str(tmp_path / "bars.json"))
+    d0 = datetime.now(ET) - timedelta(days=1)                        # 저장소는 4일 지난 봉을 지우므로 최근 평일 사용
+    while d0.weekday() >= 5:
+        d0 -= timedelta(days=1)
+    t0 = d0.replace(hour=9, minute=30, second=0, microsecond=0)
+    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 30, 30.2, 29.9, 30 + i / 100, 100) for i in range(5)])
+    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 30, 30.2, 29.9, 31, 100) for i in range(3, 8)])
+    store.save()
+    again = webdata.BarStore(str(tmp_path / "bars.json"))
+    bars = again.get("SOXL", 0)
+    assert len(bars) == 8 and bars[3][4] == 31                       # 같은 분은 새 값으로 덮어씀
+    monkeypatch.setattr(market_hours, "now_et", lambda: t0 + timedelta(minutes=8))
+    monkeypatch.setattr(webdata, "market", lambda cfg: None)
+    state = {"open": {"symbol": "SOXL", "qty": 10, "entry_price": 30.0, "entry_ts": t0.isoformat(), "stop_pct": 1.5,
+                      "take_pct": 10.0, "buy_fee": 0, "peak_price": 31.2, "trail_pct": 3.0}}
+    ev = [{"kind": "buy", "symbol": "SOXL", "qty": 10, "price": 30.0, "ts": (t0 + timedelta(minutes=1)).isoformat()}]
+    d = webdata.chart(Settings(), "paper", "SOXL", 0, again, state, {"orb": {"hh": 30.5, "ll": 29.5, "symbol": "SOXL"}}, ev)
+    assert len(d["bars"]) == 8 and d["vwap"][0] is not None and d["range"] == [29.5, 30.5]
+    kinds = {x["k"]: x["v"] for x in d["lines"]}
+    assert kinds["stop"] == 29.55 and kinds["take"] == 33.0 and kinds["trail"] == 30.264  # 고점 +4% → 청산선 31.2×0.97
+    assert d["marks"][0]["k"] == "buy" and d["marks"][0]["q"] == 10
+    assert webdata.chart(Settings(), "paper", "TSLA", 0, again, state, None, ev)["error"]
+
+
+def test_kis_holdings_merge_and_page_renders(kis, tmp_path):
+    from autostock import web, webdata
+    c, b = kis("real")
+    c.http.qty = 3
+    h = b.holdings()
+    assert h[0]["symbol"] == "SOXL" and h[0]["qty"] == 3 and h[0]["avg"] == 30.15
+    assert [x[2]["OVRS_EXCG_CD"] for x in c.http.calls if x[0] == "inquire-balance"] == ["NASD"]   # 실전은 미국 전체 한 번
+    c2, b2 = kis("demo")
+    c2.http.qty = 2
+    assert len(b2.holdings()) == 1
+    assert [x[2]["OVRS_EXCG_CD"] for x in c2.http.calls if x[0] == "inquire-balance"] == ["NASD", "NYSE", "AMEX"]
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), modes=("paper",))
+    webdata._acct_cache.clear()
+    page = web.render(cfg, "paper", "t")
+    assert "보유 종목 없음" in page and 'id=chart' in page and "</main>" in page
