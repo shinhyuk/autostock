@@ -7,16 +7,25 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 
+# 모드별 덮어쓰기: PAPER__CAPITAL_KRW 처럼 접두어를 붙인 값이 있으면 그 모드에서는 그것을 쓴다.
+PREFIX = {"paper": "PAPER__", "kis-demo": "DEMO__", "live": "LIVE__"}
+_prefix = ""
+
+
+def _raw(name: str) -> str:
+    return (os.getenv(_prefix + name) or os.getenv(name) or "").strip() if _prefix else (os.getenv(name) or "").strip()
+
+
 def _f(name: str, default: float) -> float:
-    return float(os.getenv(name) or default)
+    return float(_raw(name) or default)
 
 
 def _i(name: str, default: int) -> int:
-    return int(os.getenv(name) or default)
+    return int(_raw(name) or default)
 
 
 def _s(name: str, default: str = "") -> str:
-    return (os.getenv(name) or default).strip()
+    return _raw(name) or default
 
 
 @dataclass(frozen=True)
@@ -68,6 +77,7 @@ class Settings:
     # 판단 참고용 주변 종목(매매하지 않음). 앞의 context_bars 개는 분봉 추세까지 본다.
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
     context_bars: int = 2
+    style: str = "normal"               # normal | aggressive(분 단위 초단타)
     sessions: tuple[str, ...] = ("regular",)   # regular(정규장), pre(프리마켓), day(한국 낮 주간거래)
     bull: str = "SOXL"
     bear: str = "SOXS"
@@ -99,12 +109,25 @@ def _creds(env: str) -> KisCreds:
                     _s(p + "ACCOUNT_PRODUCT", "01"))
 
 
-def load() -> Settings:
+def load(mode: str | None = None) -> Settings:
+    """mode 를 주면 그 모드의 덮어쓰기(PAPER__/DEMO__/LIVE__)를 적용한 설정을 돌려준다."""
+    global _prefix
     load_dotenv()
+    _prefix = ""
     modes = tuple(m.strip() for m in _s("MODE", "paper").split(",") if m.strip()) or ("paper",)
+    mode = mode or modes[0]
+    _prefix = PREFIX.get(mode, "")
+    try:
+        return _build(mode, modes)
+    finally:
+        _prefix = ""
+
+
+def _build(mode: str, modes: tuple[str, ...]) -> Settings:
     return Settings(
-        mode=modes[0],
+        mode=mode,
         modes=modes,
+        style=_s("STYLE", "normal"),
         live_confirm=_s("LIVE_TRADING_CONFIRM"),
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
         effort=_s("CLAUDE_EFFORT", "medium"),

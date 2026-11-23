@@ -501,3 +501,20 @@ def test_single_symbol_long_only_mode(monkeypatch, rig):
     m2.px["NVDA"] = 130.0
     e2.tick()
     assert e2.st.open is None and "수량 0" in e2.recent_decisions[-1]["rejected"]
+
+
+def test_per_mode_overrides(monkeypatch):
+    from autostock import config
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+    for k, v in {"MODE": "paper,kis-demo,live", "BULL_SYMBOL": "NVDA", "BEAR_SYMBOL": "NONE", "CAPITAL_KRW": "170000",
+                 "DEMO__BULL_SYMBOL": "SOXL", "DEMO__BEAR_SYMBOL": "SOXS", "DEMO__CAPITAL_KRW": "1000000",
+                 "PAPER__BULL_SYMBOL": "SOXL", "PAPER__BEAR_SYMBOL": "SOXS", "PAPER__STYLE": "aggressive",
+                 "PAPER__DECISION_INTERVAL_SEC": "60"}.items():
+        monkeypatch.setenv(k, v)
+    live, demo, paper = config.load("live"), config.load("kis-demo"), config.load("paper")
+    assert live.symbols == ("NVDA",) and live.capital_krw == 170000 and live.style == "normal"
+    assert demo.symbols == ("SOXL", "SOXS") and demo.capital_krw == 1000000 and demo.decision_interval_sec == 180
+    assert paper.style == "aggressive" and paper.decision_interval_sec == 60 and paper.capital_krw == 170000
+    assert config.load().mode == "paper" and live.modes == ("paper", "kis-demo", "live")
+    assert "초단타 실험 모드" in ClaudeBrain(paper, client=SimpleNamespace()).system
+    assert "초단타 실험 모드" not in ClaudeBrain(demo, client=SimpleNamespace()).system

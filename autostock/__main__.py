@@ -94,16 +94,14 @@ def main() -> int:
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname).1s %(name)s  %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    cfg = config.load()
+    cfg = config.load(a.mode)
     bad = [m for m in cfg.modes if m not in ("paper", "kis-demo", "live")]
     if bad:
         print(f".env 의 MODE 값이 잘못됐습니다: {bad}", file=sys.stderr)
         return 2
     from . import market_hours
     market_hours.ENABLED = cfg.sessions
-    if a.mode:
-        cfg = dataclasses.replace(cfg, mode=a.mode)
-    elif len(cfg.modes) > 1 and not (a.simulate or a.check or a.order_test):
+    if not a.mode and len(cfg.modes) > 1 and not (a.simulate or a.check or a.order_test):
         return supervise(cfg.modes)
     brain = None if a.check or a.order_test else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
 

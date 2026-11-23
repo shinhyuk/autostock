@@ -347,6 +347,7 @@ def make_handler(token: str):
             mode = q.get("mode", [cfg.mode])[0]
             if mode not in MODES:
                 mode = cfg.mode
+            cfg = config.load(mode)      # 탭마다 그 모드의 자금·종목 설정으로 보여준다
             if u.path == "/data":
                 body = json.dumps(chart_data(cfg, mode, q.get("sym", [cfg.bull])[0])).encode()
                 ctype = "application/json"

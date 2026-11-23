@@ -116,12 +116,25 @@ SELL할 필요는 없고, 추세 자체가 꺾였다고 판단될 때 SELL하세
 - reason은 한국어 한두 문장으로 핵심 근거만 적으세요."""
 
 
+AGGRESSIVE = """
+
+추가 지침 — 초단타 실험 모드:
+이 계정은 분 단위로 최대한 자주 사고파는 실험용입니다. 위의 신중함 관련 지침보다 이 지침이 우선합니다.
+- 포지션이 없으면 매 판단마다 거의 항상 진입하세요. 최근 1~5분 흐름이 가리키는 쪽을 삽니다. \
+방향이 애매해도 조금이라도 기운 쪽을 고르세요.
+- 포지션이 있으면 1~3분 흐름이 불리하게 바뀌는 즉시 SELL하거나 반대 종목 BUY로 갈아타세요. \
+유리하게 가고 있을 때만 HOLD하세요.
+- 손절·익절폭은 atr14_pct의 2~3배 정도로 짧게 잡으세요. confidence는 솔직하게 적되 진입을 주저하지 마세요."""
+
+
 class ClaudeBrain:
     def __init__(self, cfg: Settings, client: anthropic.Anthropic | None = None):
         self.cfg = cfg
         # 판단이 늦게 도착하면 이미 낡은 정보이므로 타임아웃을 짧게, 재시도는 1회만.
         self.client = client or anthropic.Anthropic(timeout=90.0, max_retries=1)
         self.system = (SYSTEM if cfg.bear else SYSTEM_SINGLE).format(bull=cfg.bull, bear=cfg.bear)
+        if cfg.style == "aggressive":
+            self.system += AGGRESSIVE
 
     def decide(self, snapshot: dict) -> Decision:
         """오류·거절 시에는 항상 HOLD를 돌려준다(보유 포지션은 코드 손절이 보호)."""
