@@ -12,12 +12,11 @@ COOLDOWN_AFTER_LOSS_MIN=10
 SESSIONS=regular,day,pre
 MIN_CONFIDENCE=0.45
 
-# 실계좌: 레버리지 ETF 는 기본예탁금 요건 때문에 보류. 엔비디아만 매수·매도 (운용자금은 서버 .env 값)
-BULL_SYMBOL=NVDA
+# 실계좌: 레버리지 ETF 는 기본예탁금 요건 때문에 보류. 17만원으로 여러 주 살 수 있는 인텔만 매수·매도
+BULL_SYMBOL=INTC
 BEAR_SYMBOL=NONE
-CONTEXT_SYMBOLS=SOXX,QQQ,AMD,AVGO,TSM,MU
+CONTEXT_SYMBOLS=NVDA,SOXX,QQQ,AMD,AVGO,TSM,MU
 TRAIL_MIN_PCT=0.3
-# 실계좌 주문 경로 확인용: 값이 싼 일반 종목 1주를 샀다가 판다
 LIVE__ORDER_TEST_SYMBOL=INTC
 
 # 모의투자: 100만원으로 SOXL/SOXS
