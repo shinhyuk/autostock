@@ -107,7 +107,7 @@ class Engine:
 
     def preflight(self, now: datetime) -> bool:
         """kis-demo / live 는 1주 왕복 주문 테스트를 통과해야 매매를 시작한다(통과하면 다음부터 생략).
-        세션(정규장/프리마켓/주간거래)마다 주문 방식이 달라 따로 확인한다. 실패하면 10분 뒤 재시도."""
+        세션(정규장/프리마켓/주간거래)마다 주문 방식이 달라 따로 확인한다. 실패하면 1분 뒤 재시도."""
         c = self.cfg
         sess = market_hours.current(now)
         sname = sess.name if sess else "regular"
@@ -120,8 +120,8 @@ class Engine:
         if minutes_to_close(now) < c.no_entry_before_close_min:
             return False
         st = self.st
-        if st.test_last_ts and (now - datetime.fromisoformat(st.test_last_ts)).total_seconds() < 600:
-            return False             # 실패 후 10분 뒤 재시도
+        if st.test_last_ts and (now - datetime.fromisoformat(st.test_last_ts)).total_seconds() < 60:
+            return False             # 실패 후 1분 뒤 재시도
         lines: list[str] = []
 
         def out(msg: str) -> None:
@@ -142,11 +142,11 @@ class Engine:
                 f.write(now.isoformat())
             log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
         else:
-            if st.test_attempts >= 12:
+            if st.test_attempts >= 200:
                 st.halted = "주문 테스트 반복 실패"
-                log.error("주문 테스트 12회 실패 — 이번 세션 %s 매매는 하지 않습니다.", c.mode)
+                log.error("주문 테스트 200회 실패 — 이번 세션 %s 매매는 하지 않습니다.", c.mode)
             else:
-                log.error("주문 테스트 실패 (%d회차) — 10분 뒤 다시 시도합니다.", st.test_attempts)
+                log.error("주문 테스트 실패 (%d회차) — 1분 뒤 다시 시도합니다.", st.test_attempts)
             self.reconcile()         # 테스트로 산 1주가 남았다면 손절/익절/마감청산으로 관리
         st.save(self.state_path)
         return ok
