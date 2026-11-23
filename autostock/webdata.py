@@ -295,5 +295,12 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
                               "l": "추적 손절 시작선"})
     orb = (live or {}).get("orb") or {}
     rng = [orb["ll"], orb["hh"]] if orb.get("hh") and orb.get("symbol") == sym else None
+    if rng:
+        lines += [{"v": orb["hh"], "k": "rng", "l": "범위 상단"}, {"v": orb["ll"], "k": "rng", "l": "범위 하단"}]
+        if orb.get("box"):
+            lines += [{"v": orb["box"][1], "k": "box", "l": "박스 SOXS 매수 구간 (이 위)"},
+                      {"v": orb["box"][0], "k": "box", "l": "박스 SOXL 매수 구간 (이 아래)"}]
+        if orb.get("noise"):
+            lines += [{"v": orb["noise"][1], "k": "noise", "l": "노이즈 상단"}, {"v": orb["noise"][0], "k": "noise", "l": "노이즈 하단"}]
     return {"sym": sym, "bars": bars, "vwap": [vwap.get(b[0]) for b in bars], "marks": marks, "lines": lines,
             "range": rng, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw}

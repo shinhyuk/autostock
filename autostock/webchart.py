@@ -7,7 +7,7 @@ const NS='http://www.w3.org/2000/svg',el=(n,a,t)=>{const e=document.createElemen
 const hm=t=>new Date(t).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'});
 const usd=v=>'$'+(Math.abs(v)<100?v.toFixed(2):v.toFixed(2)),won=v=>Math.round(v).toLocaleString('ko-KR')+'원';
 const tip=document.getElementById('tip'),msg=document.getElementById('cmsg');
-const LC={entry:'var(--mut)',stop:'var(--dn)',take:'var(--up)',trail:'var(--warn)'};
+const LC={entry:'var(--mut)',stop:'var(--dn)',take:'var(--up)',trail:'var(--warn)',rng:'var(--warn)',box:'var(--mut)',noise:'var(--noise)'};
 async function load(){try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=${M}&sym=${sym}&span=${span}`);D=await r.json()}catch(e){D={error:'연결 실패'}}draw()}
 function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  if(b.length<2){msg.textContent=(D&&D.error)?'차트를 불러오지 못했습니다: '+D.error:'표시할 시세가 아직 없습니다 (봇이 1분봉을 모으는 중)';tip.style.display='none';return}
@@ -24,16 +24,15 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  const vs=b.map(x=>x[5]||0).sort((a,b)=>a-b),vmax=vs[Math.floor(vs.length*.95)]||vs[vs.length-1]||1;
  for(let i=0;i<n;i++){const [t,o,h,l,c,v]=b[i],up=c>=o,col=up?'var(--up)':'var(--dn)',vh2=Math.min((v||0)/vmax,1)*vh;
   s.append(el('rect',{x:X(i)-Math.max(step*.35,.5),y:vt+vh-vh2,width:Math.max(step*.7,1),height:vh2,fill:col,opacity:.35}))}
- if(rg.length==2){const y1=Y(rg[1]),y2=Y(rg[0]);s.append(el('rect',{x:pl,y:y1,width:pw,height:Math.max(y2-y1,1),fill:'var(--warn)',opacity:.07}));
-  for(const v of rg)s.append(el('line',{x1:pl,x2:W-pr,y1:Y(v),y2:Y(v),stroke:'var(--warn)','stroke-width':1.5,'stroke-dasharray':'5 4'}))}
+ if(rg.length==2){const y1=Y(rg[1]),y2=Y(rg[0]);s.append(el('rect',{x:pl,y:y1,width:pw,height:Math.max(y2-y1,1),fill:'var(--warn)',opacity:.07}))}
  if(step>=3){for(let i=0;i<n;i++){const [t,o,h,l,c]=b[i],col=c>=o?'var(--up)':'var(--dn)',w=Math.max(step*.62,1.5);
    s.append(el('line',{x1:X(i),x2:X(i),y1:Y(h),y2:Y(l),stroke:col,'stroke-width':1}),el('rect',{x:X(i)-w/2,y:Math.min(Y(o),Y(c)),width:w,height:Math.max(Math.abs(Y(o)-Y(c)),1),fill:col,rx:1}))}}
  else{s.append(el('path',{d:b.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(x[4]).toFixed(1)).join(''),fill:'none',stroke:'var(--fg)','stroke-width':1.6,'stroke-linejoin':'round',opacity:.85}))}
  const vp=vw.map((v,i)=>v==null?null:[X(i),Y(v)]).filter(Boolean);if(vp.length>1)s.append(el('path',{d:vp.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(''),fill:'none',stroke:'var(--vwap)','stroke-width':1.6,opacity:.9}));
  for(const l of ln){const out=!inR(l.v),y=out?pt+2:Y(l.v);if(out){s.append(el('text',{x:W-pr-4,y:pt+12,'font-size':11,fill:LC[l.k],'text-anchor':'end'},l.l+' '+usd(l.v)+' ↑'));continue}
-  s.append(el('line',{x1:pl,x2:W-pr,y1:y,y2:y,stroke:LC[l.k],'stroke-width':1.5,'stroke-dasharray':l.k=='entry'?'2 3':'6 4'}),
+  s.append(el('line',{x1:pl,x2:W-pr,y1:y,y2:y,stroke:LC[l.k],'stroke-width':1.5,'stroke-dasharray':l.k=='entry'?'2 3':l.k=='box'?'2 4':'6 4'}),
    el('rect',{x:W-pr+1,y:y-8,width:pr-2,height:16,rx:3,fill:LC[l.k]}),el('text',{x:W-pr+5,y:y+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(l.v)),
-   el('text',{x:pl+4,y:y-4,'font-size':11,fill:LC[l.k]},l.l))}
+   el('text',{x:pl+4,y:y-4,'font-size':11,'font-weight':600,fill:LC[l.k],stroke:'var(--card)','stroke-width':3,'paint-order':'stroke'},l.l))}
  for(const m of mk){const i=idx(m.t),cx=X(i),buy=m.k=='buy',cy=buy?Y(b[i][3])+12:Y(b[i][2])-12,d=buy?`M${cx} ${cy-7}L${cx+7} ${cy+5}L${cx-7} ${cy+5}Z`:`M${cx} ${cy+7}L${cx+7} ${cy-5}L${cx-7} ${cy-5}Z`;
   s.append(el('line',{x1:cx,x2:cx,y1:Y(m.p),y2:cy,stroke:buy?'var(--up)':'var(--dn)','stroke-width':1,opacity:.6}),el('path',{d,fill:buy?'var(--up)':'var(--dn)',stroke:'var(--card)','stroke-width':2,'stroke-linejoin':'round'}))}
  const L=b[n-1];s.append(el('line',{x1:pl,x2:W-pr,y1:Y(L[4]),y2:Y(L[4]),stroke:'var(--fg)','stroke-width':1,opacity:.35}),el('rect',{x:W-pr+1,y:Y(L[4])-8,width:pr-2,height:16,rx:3,fill:'var(--fg)'}),el('text',{x:W-pr+5,y:Y(L[4])+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(L[4])));

@@ -132,6 +132,13 @@ class Engine:
             o = self.orb.get(market_hours.session_key(now)) or {}
             data["orb"] = {"minutes": self.cfg.orb_minutes, "hh": o.get("hh"), "ll": o.get("ll"),
                            "status": self.orb_status, "symbol": self.cfg.bull}
+            c = self.cfg
+            if c.box and o.get("hh") and not o.get("broke"):
+                w, mid = o["hh"] - o["ll"], (o["hh"] + o["ll"]) / 2
+                if w / mid * 100 >= c.box_min_width:
+                    data["orb"]["box"] = [round(o["ll"] + c.box_zone * w, 4), round(o["hh"] - c.box_zone * w, 4)]
+            if o.get("noise_lvls"):
+                data["orb"]["noise"] = [round(x, 4) for x in o["noise_lvls"]]
         sess = market_hours.current(now)
         data["session"] = sess.name if sess else ""
         data["strategy"] = self._strategy(now) if sess else ""
@@ -599,6 +606,7 @@ class Engine:
         px = bar.close
         want = 1 if px > up else -1 if px < lo else 0
         o["noise_note"] = f"노이즈 영역 ${lo:.2f}~${up:.2f} (개장 후 {cp}분, {c.bull} ${px:.2f})"
+        o["noise_lvls"] = (lo, up)
         if holding:
             side = 1 if t.symbol == c.bull else -1
             if (side > 0 and px < up) or (side < 0 and px > lo) or (want and want != side):

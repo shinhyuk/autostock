@@ -25,8 +25,8 @@ KST = ZoneInfo("Asia/Seoul")
 ET = ZoneInfo("America/New_York")
 ACTION = {"BUY": "매수", "SELL": "청산", "HOLD": "관망", "AGREE": "AI 동의", "DISAGREE": "AI 반대"}
 CSS = """
-:root{--bg:#f4f5f7;--card:#fff;--fg:#14161a;--mut:#667085;--line:#e4e7ec;--up:#d92d20;--dn:#1d4ed8;--acc:#111827;--ok:#16a34a;--warn:#d97706;--track:#eceef2;--vwap:#7c3aed}
-@media(prefers-color-scheme:dark){:root{--bg:#0e1014;--card:#171a20;--fg:#eceef2;--mut:#98a2b3;--line:#272b34;--up:#ff6b5e;--dn:#6ea8ff;--acc:#eceef2;--ok:#4ade80;--warn:#fbbf24;--track:#22262e;--vwap:#a78bfa}}
+:root{--bg:#f4f5f7;--card:#fff;--fg:#14161a;--mut:#667085;--line:#e4e7ec;--up:#d92d20;--dn:#1d4ed8;--acc:#111827;--ok:#16a34a;--warn:#d97706;--track:#eceef2;--vwap:#7c3aed;--noise:#0e7490}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1014;--card:#171a20;--fg:#eceef2;--mut:#98a2b3;--line:#272b34;--up:#ff6b5e;--dn:#6ea8ff;--acc:#eceef2;--ok:#4ade80;--warn:#fbbf24;--track:#22262e;--vwap:#a78bfa;--noise:#22d3ee}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;-webkit-text-size-adjust:100%}
 main{max-width:720px;margin:0 auto;padding:14px 14px 40px}
 header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:2px 0 12px}
@@ -64,6 +64,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .lg-up{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--up)}
 .lg-dn{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:9px solid var(--dn)}
 .lg-line{width:16px;height:0;border-top:2px solid}.lg-line.vwap{border-color:var(--vwap)}.lg-line.rng{border-top-style:dashed;border-color:var(--warn)}
+.lg-line.bx{border-top-style:dotted;border-color:var(--mut)}.lg-line.nz{border-top-style:dashed;border-color:var(--noise)}
 .lg-line.stp{border-top-style:dashed;border-color:var(--dn)}.lg-line.tkp{border-top-style:dashed;border-color:var(--up)}
 .tu{color:var(--up)}.td{color:var(--dn)}.mutt{color:var(--mut)}.warnt{color:var(--warn)}.pad{padding:0 4px}
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
@@ -291,6 +292,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                + "</div><div class=legend><span><i class='lg-up'></i>매수</span><span><i class='lg-dn'></i>매도</span>"
                "<span><i class='lg-line vwap'></i>VWAP</span>"
                + ("<span><i class='lg-line rng'></i>개장 범위</span>" if cfg.strategy == "orb" else "")
+               + ("<span><i class='lg-line bx'></i>박스 매수 구간</span>" if cfg.box else "")
+               + ("<span><i class='lg-line nz'></i>노이즈 영역</span>" if cfg.noise else "")
                + ("<span><i class='lg-line stp'></i>손절</span><span><i class='lg-line tkp'></i>익절</span>" if o else "")
                + f"</div><div class=chartwrap><div id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></div><div id=tip></div></div>"
                "<div id=cmsg class=note>불러오는 중…</div></section>")
