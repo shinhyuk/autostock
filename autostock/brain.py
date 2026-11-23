@@ -136,13 +136,27 @@ atr14_pct의 2배 정도로 잡으세요.
 (예: 돌파 진입이 계속 실패하면 되돌림 진입으로)."""
 
 
+ORB_REVIEW = """
+
+추가 지침 — 규칙 전략 검토 모드:
+이 계정은 규칙 기반 전략(개장 범위 돌파: 개장 후 일정 시간의 고가·저가를 벗어나면 그 방향으로 진입, \
+엔비디아·SOXX 동조 확인)이 매매합니다. 당신에게는 규칙이 방금 진입한 직후의 스냅샷(trigger=orb_entry_review, \
+account.position)이 옵니다. 이 진입이 좋은 진입인지 검토하세요.
+- 동의하면 action=HOLD, 반대(지금 바로 빠져야 한다고 판단)하면 action=SELL 로 답하세요.
+- 당신의 답은 주문에 반영되지 않고 기록만 됩니다. 나중에 당신의 동의·반대가 실제 결과와 맞았는지 비교합니다. \
+그러니 솔직하게 판단하고, reason 에 근거(주변 종목, VWAP, 돌파 강도, 시간대 등)를 구체적으로 적으세요.
+- confidence 는 당신 판단이 맞을 가능성입니다."""
+
+
 class ClaudeBrain:
     def __init__(self, cfg: Settings, client: anthropic.Anthropic | None = None):
         self.cfg = cfg
         # 판단이 늦게 도착하면 이미 낡은 정보이므로 타임아웃을 짧게, 재시도는 1회만.
         self.client = client or anthropic.Anthropic(timeout=90.0, max_retries=1)
         self.system = (SYSTEM if cfg.bear else SYSTEM_SINGLE).format(bull=cfg.bull, bear=cfg.bear)
-        if cfg.style == "aggressive":
+        if cfg.strategy == "orb":
+            self.system += ORB_REVIEW
+        elif cfg.style == "aggressive":
             self.system += AGGRESSIVE
 
     def decide(self, snapshot: dict) -> Decision:

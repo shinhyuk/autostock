@@ -596,3 +596,86 @@ def test_kis_get_retries_after_dropped_connection(kis):
         assert KISMarket(c).quote("SOXL").last == 30.10 and n["n"] == 2
     finally:
         requests.Session = orig_session
+
+
+class OrbMarket:
+    """개장 후 20분 동안 SOXL 29.5~30.5 범위, 그 뒤 가격을 테스트가 정한다. 1분봉은 끝난 봉만 준다."""
+    def __init__(self, now):
+        self.now, self.px = now, {"SOXL": 30.0, "SOXS": 15.0, "NVDA": 130.0, "SOXX": 250.0}
+        self.opens = {"NVDA": 129.0, "SOXX": 248.0}
+        self.after = []                                              # 20분 이후 봉 종가
+
+    def quote(self, s):
+        return Quote(s, self.px[s], self.px[s])
+
+    def bars(self, s, n=120):
+        o = self.now.replace(hour=9, minute=30, second=0, microsecond=0)
+        out = []
+        for k in range(int((self.now - o).total_seconds() // 60)):
+            ts = o + timedelta(minutes=k)
+            if s == "SOXL":
+                c = (30.5 if k % 2 else 29.5) if k < 20 else (self.after[k - 20] if k - 20 < len(self.after) else self.px[s])
+                out.append(Bar(ts, c, c, c, c, 1000))
+            else:
+                p0 = self.opens.get(s, self.px[s])
+                out.append(Bar(ts, p0 if k == 0 else self.px[s], self.px[s], self.px[s], self.px[s], 1000))
+        return out[-n:]
+
+
+@pytest.fixture
+def orb_rig(tmp_path):
+    def make(**over):
+        cfg = dataclasses.replace(Settings(), **{"data_dir": str(tmp_path), "strategy": "orb", "fee_pct": 0.0,
+                                                 "max_stop_loss_pct": 1.5, "take_profit_max_pct": 10, **over})
+        m = OrbMarket(datetime(2026, 1, 5, 9, 50, 30, tzinfo=ET))
+        brain = Brain(dec("HOLD", ""))
+        return Engine(cfg, m, PaperBroker(slippage_pct=0), brain, clock=lambda: m.now), m, brain
+    return make
+
+
+def test_orb_enters_on_breakout_with_peers(orb_rig):
+    e, m, brain = orb_rig()
+    e.tick()
+    assert e.orb["2026-01-05"]["hh"] == 30.5 and e.st.open is None and "돌파 대기" in e.orb_status
+    m.after = [30.8]
+    m.px["SOXL"] = 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()                                                         # 9:51 — 9:50 봉 종가 30.8 > 30.5
+    t = e.st.open
+    assert t.symbol == "SOXL" and t.stop_pct == 1.5 and t.take_pct == 10 and t.trail_pct == 3
+    assert brain.snaps and brain.snaps[0]["trigger"] == "orb_entry_review"
+    import json
+    ev = [json.loads(x) for x in open(e.log_path)]
+    assert any(x.get("review") and x["action"] == "AGREE" for x in ev)
+
+
+def test_orb_requires_peer_agreement_and_window(orb_rig):
+    e, m, _ = orb_rig()
+    m.opens["NVDA"] = 131.0                                          # 엔비디아는 개장가보다 아래
+    m.after, m.px["SOXL"] = [30.8], 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and "동조 안 됨" in e.orb_status and "NVDA" in e.orb_status
+
+    e2, m2, _ = orb_rig(orb_window_min=15, data_dir=e.cfg.data_dir + "/b")
+    m2.after, m2.px["SOXL"] = [30.8], 30.8
+    m2.now += timedelta(minutes=1)
+    e2.tick()
+    assert e2.st.open is None and "마감" in e2.orb_status
+
+
+def test_orb_downside_buys_bear_and_respects_max_trades(orb_rig):
+    e, m, _ = orb_rig(orb_max_trades=1)
+    m.opens.update(NVDA=131.0, SOXX=251.0)                           # 동조 종목도 하락
+    m.after, m.px["SOXL"] = [29.2], 29.2
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open.symbol == "SOXS"
+    m.px["SOXS"] = 14.7                                              # -2% → 손절
+    m.now += timedelta(seconds=10)
+    e.tick()
+    assert e.st.open is None and e.st.trades == 1
+    m.after.append(29.0)
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and "모두 사용" in e.orb_status

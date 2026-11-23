@@ -23,7 +23,7 @@ from . import config, market_hours
 MODES = {"paper": "가상매매", "kis-demo": "모의투자", "live": "실계좌"}
 KST = ZoneInfo("Asia/Seoul")
 ET = ZoneInfo("America/New_York")
-ACTION = {"BUY": "매수", "SELL": "청산", "HOLD": "관망"}
+ACTION = {"BUY": "매수", "SELL": "청산", "HOLD": "관망", "AGREE": "AI 동의", "DISAGREE": "AI 반대"}
 CSS = """
 :root{--bg:#f4f5f7;--card:#fff;--fg:#14161a;--mut:#667085;--line:#e4e7ec;--up:#d92d20;--dn:#1d4ed8;--acc:#111827;--ok:#16a34a;--warn:#d97706;--track:#eceef2}
 @media(prefers-color-scheme:dark){:root{--bg:#0e1014;--card:#171a20;--fg:#eceef2;--mut:#98a2b3;--line:#272b34;--up:#ff6b5e;--dn:#6ea8ff;--acc:#eceef2;--ok:#4ade80;--warn:#fbbf24;--track:#22262e}}
@@ -74,11 +74,12 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  if(b.length<2){msg.textContent=(D&&D.error)?'차트를 불러오지 못했습니다: '+D.error:'표시할 시세가 아직 없습니다';tip.style.display='none';return}
  msg.textContent=sym+' 1분봉 · 최근 '+b.length+'분 · 10초마다 갱신'+(D.last?' · 현재 $'+D.last.toFixed(2):'');
  const W=box.clientWidth,H=230,pl=6,pr=50,pt=14,pb=22,tr=D.trades||[];
- let lo=Math.min(...b.map(x=>x[1]),...tr.map(x=>x[2])),hi=Math.max(...b.map(x=>x[1]),...tr.map(x=>x[2]));const pad=(hi-lo)*.08||.05;lo-=pad;hi+=pad;
+ const rg=D.range||[];let lo=Math.min(...b.map(x=>x[1]),...tr.map(x=>x[2]),...rg),hi=Math.max(...b.map(x=>x[1]),...tr.map(x=>x[2]),...rg);const pad=(hi-lo)*.08||.05;lo-=pad;hi+=pad;
  const t0=b[0][0],t1=b[b.length-1][0],X=t=>pl+(t-t0)/(t1-t0||1)*(W-pl-pr),Y=v=>pt+(hi-v)/(hi-lo)*(H-pt-pb);
  const s=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':sym+' 가격 추이와 매매 지점'});
  for(let i=0;i<=3;i++){const v=lo+(hi-lo)*i/3,y=Y(v);s.append(el('line',{x1:pl,x2:W-pr,y1:y,y2:y,stroke:'var(--line)','stroke-width':1}),el('text',{x:W-pr+6,y:y+4,'font-size':11,fill:'var(--mut)'},'$'+v.toFixed(2)))}
  for(let i=0;i<=2;i++){const t=t0+(t1-t0)*i/2;s.append(el('text',{x:X(t),y:H-6,'font-size':11,fill:'var(--mut)','text-anchor':i==0?'start':i==2?'end':'middle'},hm(t)))}
+ for(const v of rg){s.append(el('line',{x1:pl,x2:W-pr,y1:Y(v),y2:Y(v),stroke:'var(--warn)','stroke-width':1.5,'stroke-dasharray':'5 4'}))}
  s.append(el('path',{d:b.map((x,i)=>(i?'L':'M')+X(x[0]).toFixed(1)+' '+Y(x[1]).toFixed(1)).join(''),fill:'none',stroke:'var(--fg)','stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round',opacity:.8}));
  const L=b[b.length-1];s.append(el('circle',{cx:X(L[0]),cy:Y(L[1]),r:4,fill:'var(--fg)',stroke:'var(--card)','stroke-width':2}));
  for(const x of tr){if(x[0]<t0||x[0]>t1+6e4)continue;const cx=X(Math.min(x[0],t1)),cy=Y(x[2]),buy=x[1]=='buy',d=buy?`M${cx} ${cy-8}L${cx+7} ${cy+5}L${cx-7} ${cy+5}Z`:`M${cx} ${cy+8}L${cx+7} ${cy-5}L${cx-7} ${cy-5}Z`;
@@ -129,7 +130,9 @@ def chart_data(cfg, mode: str, sym: str) -> dict:
             except (ValueError, KeyError):
                 continue
     bars = hit[1]
-    return {"bars": bars, "trades": trades[-60:], "last": bars[-1][1] if bars else None}
+    orb = (live or {}).get("orb") or {}
+    rng = [orb["ll"], orb["hh"]] if orb.get("hh") and orb.get("symbol") == sym else None
+    return {"bars": bars, "trades": trades[-60:], "last": bars[-1][1] if bars else None, "range": rng}
 
 
 def _read(cfg, mode):
@@ -240,6 +243,18 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"<div><div class=k>운용자금</div><div class=v>{cfg.capital_krw:,.0f}</div></div></div>"
                + (f"<div class=note>종료 사유: {e(s['halted'])}</div>" if s["halted"] else "") + "</section>")
 
+    # ── 전략 상태
+    orb = (live or {}).get("orb") if cfg.strategy == "orb" else None
+    if cfg.strategy == "orb":
+        rng = (f" · 오늘 범위 ${orb['ll']:.2f} ~ ${orb['hh']:.2f}" if orb and orb.get("hh") else "")
+        out.append(f"<h2>전략</h2><section class=card><b>개장 {cfg.orb_minutes}분 범위 돌파</b>"
+                   f"<span class=mut>{e(rng)}</span>"
+                   f"<div class=note>상태: {e((orb or {}).get('status') or '-')}<br>"
+                   f"범위 위로 뚫으면 {e(cfg.bull)}, 아래로 뚫으면 {e(cfg.bear or '-')} 매수 · 엔비디아·SOXX 동조 필요 · "
+                   f"손절 {cfg.orb_stop_pct}% · 익절 {cfg.orb_take_pct}% · 추적 {cfg.orb_trail_pct}% · "
+                   f"개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회<br>"
+                   f"Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영).</div></section>")
+
     # ── 가격 차트
     held = o["symbol"] if o else cfg.bull
     out.append("<h2>가격 차트</h2><section class=card><div class=seg>"
@@ -298,7 +313,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         out.append("<h2>AI 판단 기록 (한국시간)</h2><section class='card feed'>")
         for x in decisions:
             act = x.get("action", "")
-            kind = "buy" if act == "BUY" else "sell" if act == "SELL" else ""
+            kind = "buy" if act == "BUY" else "sell" if act in ("SELL", "DISAGREE") else ""
             out.append(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div><div class=h><span>"
                        f"<span class='tag {kind}'>{ACTION.get(act, e(str(act)))}</span> {e(str(x.get('symbol') or ''))}</span>"
                        f"<span class=mut style='font-weight:500;font-size:13px'>확신 {x.get('confidence', 0) * 100:.0f}%</span></div>"

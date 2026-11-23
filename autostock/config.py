@@ -79,6 +79,14 @@ class Settings:
     # 판단 참고용 주변 종목(매매하지 않음). 앞의 context_bars 개는 분봉 추세까지 본다.
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
     context_bars: int = 2
+    strategy: str = "ai"                # ai(매 판단을 Claude) | orb(개장 범위 돌파 규칙 + Claude 검토 의견)
+    orb_minutes: int = 20               # 개장 후 이 시간 동안의 고가·저가가 범위
+    orb_window_min: int = 120           # 개장 후 이 시간까지만 신규 진입
+    orb_max_trades: int = 2
+    orb_stop_pct: float = 1.5
+    orb_take_pct: float = 10.0
+    orb_trail_pct: float = 3.0
+    orb_peers: tuple[str, ...] = ("NVDA", "SOXX")   # 돌파 방향으로 같이 움직여야 하는 종목
     order_test_symbol: str = ""         # 주문 테스트에 쓸 종목 (비우면 매매 종목)
     order_test_sell: bool = True        # False 면 주문 테스트에서 1주를 사기만 하고 포지션으로 넘긴다
     style: str = "normal"               # normal | aggressive(분 단위 초단타)
@@ -133,6 +141,14 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         modes=modes,
         style=_s("STYLE", "normal"),
         order_test_symbol=_s("ORDER_TEST_SYMBOL").upper(),
+        strategy=_s("STRATEGY", "ai").lower(),
+        orb_minutes=_i("ORB_MINUTES", 20),
+        orb_window_min=_i("ORB_WINDOW_MIN", 120),
+        orb_max_trades=_i("ORB_MAX_TRADES", 2),
+        orb_stop_pct=_f("ORB_STOP_PCT", 1.5),
+        orb_take_pct=_f("ORB_TAKE_PCT", 10.0),
+        orb_trail_pct=_f("ORB_TRAIL_PCT", 3.0),
+        orb_peers=tuple(x.strip().upper() for x in _s("ORB_PEERS", "NVDA,SOXX").split(",") if x.strip()),
         order_test_sell=_s("ORDER_TEST_SELL", "true").lower() not in ("false", "0", "no"),
         live_confirm=_s("LIVE_TRADING_CONFIRM"),
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),

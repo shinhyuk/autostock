@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 
 from . import indicators
@@ -60,6 +60,9 @@ class Engine:
         self.last_decision_at: datetime | None = None
         self.recent_decisions: list[dict] = []
         self._waiting_logged = ""
+        self.orb: dict[str, dict] = {}               # 세션별 개장 범위와 동조 종목 시가
+        self.orb_status = ""
+        self._orb_minute: datetime | None = None
         self.ref_prices: dict[str, float] = {}       # 직전 AI 판단 때의 가격 (급변 감지용)
         self.trigger = "scheduled"
 
@@ -85,6 +88,10 @@ class Engine:
         t, last = self.st.open, self._last_price
         data = {"ts": now.isoformat(), "status": status, "model": getattr(self.cfg, "model", ""),
                 "last": last, "unrealized_usd": round(self.risk.unrealized(t, last), 2) if t and last else None}
+        if self.cfg.strategy == "orb":
+            o = self.orb.get(market_hours.session_key(now)) or {}
+            data["orb"] = {"minutes": self.cfg.orb_minutes, "hh": o.get("hh"), "ll": o.get("ll"),
+                           "status": self.orb_status, "symbol": self.cfg.bull}
         try:
             os.makedirs(self.cfg.data_dir, exist_ok=True)
             tmp = self.live_path + ".tmp"
@@ -173,7 +180,7 @@ class Engine:
         return ok
 
     # ── 주문 ────────────────────────────────────────────────
-    def _enter(self, d: Decision, last: float, atr_pct: float | None = None) -> None:
+    def _enter(self, d: Decision, last: float, atr_pct: float | None = None, trail: float | None = None) -> None:
         qty = self.risk.size(self.st, d, last)
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
@@ -183,7 +190,7 @@ class Engine:
             self._reject(d, "매수 미체결")
             return
         stop, take = self.risk.stops(d)
-        trail = self.risk.trail(stop, atr_pct)
+        trail = trail if trail is not None else self.risk.trail(stop, atr_pct)
         self.st.open = OpenTrade(d.symbol, fill.qty, fill.price, self.clock().isoformat(),
                                  stop, take, self.risk.fee(fill.price, fill.qty), fill.price, trail)
         self.st.save(self.state_path)
@@ -342,6 +349,102 @@ class Engine:
             return
         self._enter(d, last, snap["market"][d.symbol].get("atr14_pct"))
 
+    # ── 개장 범위 돌파(ORB) 전략 ────────────────────────────
+    def _orb_tick(self, now: datetime) -> None:
+        """개장 후 orb_minutes 분의 고가·저가를 범위로 잡고, 1분봉 종가가 범위를 벗어나면 그 방향으로 진입한다.
+        엔비디아·SOXX 가 개장가 대비 같은 방향이어야 한다. 청산은 손절·익절·추적 손절·장 마감 청산(코드).
+        최근 20거래일 백테스트에서 고른 규칙이다(research/README.md)."""
+        c = self.cfg
+        sess = market_hours.current(now)
+        if not sess or sess.name != "regular":
+            self.orb_status = "정규장에서만 매매"
+            return
+        since = minutes_since_open(now)
+        if since < c.orb_minutes:
+            self.orb_status = f"범위 형성 중 ({c.orb_minutes - since:.0f}분 남음)"
+            return
+        minute = now.replace(second=0, microsecond=0)
+        if self._orb_minute == minute:               # 1분봉 기준이라 분당 한 번만 본다
+            return
+        self._orb_minute = minute
+        o = self.orb.get(sess.key)
+        if o is None:
+            end = sess.open + timedelta(minutes=c.orb_minutes)
+            rb = [b for b in self.market.bars(c.bull, 120) if sess.open <= b.ts < end]
+            if len(rb) < c.orb_minutes * 0.7:
+                self.orb_status = "개장 범위 데이터 부족"
+                log.warning("개장 범위 봉이 부족함 (%d개)", len(rb))
+                return
+            o = {"hh": max(b.high for b in rb), "ll": min(b.low for b in rb), "peers": {}}
+            for p in c.orb_peers:
+                try:
+                    pb = [b for b in self.market.bars(p, 120) if b.ts >= sess.open]
+                    o["peers"][p] = pb[0].open if pb else None
+                except Exception as e:
+                    log.warning("동조 종목 %s 시가 조회 실패: %s", p, e)
+                    o["peers"][p] = None
+            self.orb[sess.key] = o
+            log.info("개장 %d분 범위: $%.2f ~ $%.2f", c.orb_minutes, o["ll"], o["hh"])
+        if self.st.open:
+            self.orb_status = "보유 중"
+            return
+        if self.st.halted:
+            self.orb_status = f"종료 ({self.st.halted})"
+            return
+        if since > c.orb_window_min:
+            self.orb_status = "오늘 신규 진입 마감"
+            return
+        if self.st.trades >= c.orb_max_trades:
+            self.orb_status = f"오늘 {c.orb_max_trades}회 모두 사용"
+            return
+        done = [b for b in self.market.bars(c.bull, 5) if b.ts < minute]
+        if not done or (now - done[-1].ts).total_seconds() > 240:
+            self.orb_status = "시세 지연"
+            return
+        close = done[-1].close
+        sg = 1 if close > o["hh"] else -1 if close < o["ll"] else 0
+        if not sg:
+            self.orb_status = "돌파 대기"
+            return
+        side = c.bull if sg > 0 else c.bear
+        if not side:                                 # 하락 쪽 종목이 없으면 상단 돌파만
+            self.orb_status = "돌파 대기 (하락 종목 없음)"
+            return
+        lag = []
+        for p, p0 in o["peers"].items():
+            if p0:
+                chg = (self.market.quote(p).last / p0 - 1) * 100
+                if sg * chg <= 0:
+                    lag.append(f"{p} {chg:+.2f}%")
+        if lag:
+            self.orb_status = f"{'상단' if sg > 0 else '하단'} 돌파했지만 동조 안 됨: {', '.join(lag)}"
+            return
+        last = self.market.quote(side).last
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
+                     stop_loss_pct=c.orb_stop_pct, take_profit_pct=c.orb_take_pct,
+                     reason=f"개장 {c.orb_minutes}분 범위(${o['ll']:.2f}~${o['hh']:.2f}) "
+                            f"{'상단' if sg > 0 else '하단'} 돌파, 종가 ${close:.2f}, 동조 종목 같은 방향")
+        self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side,
+                                      "reason": d.reason})
+        self._enter(d, last, trail=c.orb_trail_pct)
+        if self.st.open:
+            self.orb_status = "보유 중"
+            self._ai_review(now)
+
+    def _ai_review(self, now: datetime) -> None:
+        """규칙이 방금 들어간 진입을 Claude 가 검토한다. 주문에는 반영하지 않고 기록만 한다
+        (Claude 의 판단이 실제로 도움이 되는지 쌓인 기록으로 확인한 뒤에 반영하기 위해)."""
+        try:
+            snap = self.snapshot(now)
+            snap["trigger"] = "orb_entry_review"
+            d = self.brain.decide(snap)
+        except Exception as e:
+            log.warning("AI 검토 실패: %s", e)
+            return
+        agree = d.action != "SELL"
+        log.info("AI 검토: %s — %s", "동의" if agree else "반대", d.reason)
+        self._journal("decision", **{**d.model_dump(), "action": "AGREE" if agree else "DISAGREE", "review": True})
+
     # ── 루프 ────────────────────────────────────────────────
     def tick(self) -> None:
         now = self.clock()
@@ -372,6 +475,9 @@ class Engine:
         if self.st.halted and not self.st.open:
             return
         if not self.preflight(now):
+            return
+        if self.cfg.strategy == "orb":
+            self._orb_tick(now)
             return
         since = None if self.last_decision_at is None else (now - self.last_decision_at).total_seconds()
         due = since is None or since >= self.cfg.decision_interval_sec
