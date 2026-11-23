@@ -16,6 +16,7 @@ PY=$DIR/.venv/bin/python
 mode() { grep -E '^MODE=' .env 2>/dev/null | head -1 | cut -d= -f2 | awk '{print $1}'; }
 modes() { mode | tr ',' ' '; }
 has_position() {   # 실계좌(live)가 포지션을 들고 있으면 참. 가상·모의는 재시작해도 상태 파일로 복원된다
+  local m
   for m in $(modes); do
     [[ $m == live ]] || continue
     if $PY -c 'import json,sys
