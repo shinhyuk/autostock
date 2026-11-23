@@ -613,7 +613,7 @@ class OrbMarket:
         out = []
         for k in range(int((self.now - o).total_seconds() // 60)):
             ts = o + timedelta(minutes=k)
-            if s == "SOXL":
+            if s == getattr(self, "bars_sym", "SOXL"):
                 c = (30.5 if k % 2 else 29.5) if k < 20 else (self.after[k - 20] if k - 20 < len(self.after) else self.px[s])
                 out.append(Bar(ts, c, c, c, c, 1000))
             else:
@@ -765,3 +765,21 @@ def test_afterhours_session_and_per_session_strategy(monkeypatch, tmp_path):
     assert e2._strategy(m2.now) == "orb" and e._strategy(m.now) == "ai"
     b = ClaudeBrain(cfg, client=SimpleNamespace())
     assert "규칙 전략 검토 모드" in b.review_system and "규칙 전략 검토 모드" not in b.system
+
+
+def test_order_test_shared_between_regular_and_extended(rig):
+    import os
+    e, m, _ = rig(mode="live", modes=("live",))
+    open(e._ok_file("live", "pre"), "w").close()                    # 프리마켓에서 통과했으면
+    assert e.preflight(m.now) and not os.path.exists(e._ok_file("live"))   # 정규장은 다시 안 함
+
+
+def test_orb_long_only_skips_downside(orb_rig):
+    e, m, _ = orb_rig(bull="INTC", bear="", orb_peers=("SOXX",))
+    m.px["INTC"] = 30.0
+    m.bars_sym = "INTC"
+    m.opens["SOXX"] = 251.0
+    m.after, m.px["INTC"] = [29.2], 29.2
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None

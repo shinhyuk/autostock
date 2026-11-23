@@ -12,13 +12,24 @@ COOLDOWN_AFTER_LOSS_MIN=10
 SESSIONS=regular,day,pre
 MIN_CONFIDENCE=0.45
 
-# 실계좌: 레버리지 ETF 는 기본예탁금 요건 때문에 보류. 17만원으로 여러 주 살 수 있는 인텔만 매수·매도
+# 실계좌: 레버리지 ETF 는 기본예탁금 요건 때문에 보류. 인텔을 정규장에서만, 개장 30분 범위 상단 돌파 때만 매수
+#  (19거래일 백테스트: 초단타 -118.9% / 이 설정 -1.1%, 거래 6회. 하락장이라 이기는 방식은 없었고 거래를 줄이는 게 최선)
 BULL_SYMBOL=INTC
 BEAR_SYMBOL=NONE
 CONTEXT_SYMBOLS=NVDA,SOXX,QQQ,AMD,AVGO,TSM,MU
 TRAIL_MIN_PCT=0.3
 LIVE__ORDER_TEST_SYMBOL=INTC
 LIVE__ORDER_TEST_SELL=false
+LIVE__STRATEGY=orb
+LIVE__SESSIONS=regular
+LIVE__ORB_MINUTES=30
+LIVE__ORB_WINDOW_MIN=120
+LIVE__ORB_MAX_TRADES=1
+LIVE__ORB_STOP_PCT=1.0
+LIVE__ORB_TAKE_PCT=6
+LIVE__ORB_TRAIL_PCT=1.5
+LIVE__ORB_PEERS=SOXX,QQQ
+LIVE__TAKE_PROFIT_MAX_PCT=10
 
 # 모의투자: 100만원으로 SOXL/SOXS
 DEMO__BULL_SYMBOL=SOXL

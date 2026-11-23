@@ -137,7 +137,11 @@ class Engine:
         sname = sess.name if sess else "regular"
         if c.mode == "kis-demo" and sname != "regular":
             return False             # 모의투자는 정규장에서만 돌린다(주간거래·프리마켓 주문 미지원)
-        if c.mode not in ("kis-demo", "live") or os.path.exists(self._ok_file(c.mode, sname)):
+        if c.mode not in ("kis-demo", "live"):
+            return True
+        # 정규장·프리마켓·애프터마켓은 같은 주문 API, 주간거래만 다르다 → 같은 경로는 한 번만 확인
+        same = ("day",) if sname == "day" else ("regular", "pre", "post")
+        if any(os.path.exists(self._ok_file(c.mode, x)) for x in same):
             return True
         if self.st.halted or minutes_since_open(now) < c.no_entry_after_open_min:
             return False
