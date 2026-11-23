@@ -338,8 +338,10 @@ def test_preflight_gates_real_order_modes(rig, monkeypatch):
     step(e2, m2, 5)
     assert e2.st.test_attempts == 1                                  # 10분 전에는 재시도 안 함
     step(e2, m2, 6)
+    assert e2.st.test_attempts == 2 and e2.st.halted == ""
+    e2.st.test_attempts = 11
     step(e2, m2, 11)
-    assert e2.st.halted == "주문 테스트 3회 실패"
+    assert e2.st.halted == "주문 테스트 반복 실패"
     from autostock import web
     assert "주문 테스트 실패" in web.render(e2.cfg, "kis-demo", "t")
     assert e2.st.roll("2026-01-06") and e2.st.halted == "" and e2.st.test_attempts == 0

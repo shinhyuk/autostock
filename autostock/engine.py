@@ -148,11 +148,11 @@ class Engine:
                 f.write(now.isoformat())
             log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
         else:
-            if st.test_attempts >= 3:
-                st.halted = "주문 테스트 3회 실패"
-                log.error("주문 테스트 3회 실패 — 이번 세션 %s 매매는 하지 않습니다.", c.mode)
+            if st.test_attempts >= 12:
+                st.halted = "주문 테스트 반복 실패"
+                log.error("주문 테스트 12회 실패 — 이번 세션 %s 매매는 하지 않습니다.", c.mode)
             else:
-                log.error("주문 테스트 실패 (%d/3) — 10분 뒤 다시 시도합니다.", st.test_attempts)
+                log.error("주문 테스트 실패 (%d회차) — 10분 뒤 다시 시도합니다.", st.test_attempts)
             self.reconcile()         # 테스트로 산 1주가 남았다면 손절/익절/마감청산으로 관리
         st.save(self.state_path)
         return ok
@@ -346,8 +346,8 @@ class Engine:
                     self.last_decision_at = None     # 코드가 청산했으면 바로 다음 틱에 AI 에게 다음 수를 묻는다
                     self.trigger = "after_exit"
                 return
-        if self.st.halted == "주문 테스트 실패":     # 예전 버전이 남긴 당일 중단 → 재시도 허용
-            self.st.halted = ""
+        if self.st.halted in ("주문 테스트 실패", "주문 테스트 3회 실패"):   # 예전 버전이 남긴 중단 → 재시도 허용
+            self.st.halted, self.st.test_last_ts = "", ""
         if self.st.halted and not self.st.open:
             return
         if not self.preflight(now):
