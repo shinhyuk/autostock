@@ -181,7 +181,9 @@ def collector(store: BarStore, stop: threading.Event) -> None:
         try:
             cfg = config.load()
             market_hours.ENABLED = cfg.sessions
-            syms = sorted({s for m in cfg.modes for s in config.load(m).symbols})
+            cfgs = [config.load(m) for m in cfg.modes]
+            market_hours.ENABLED = tuple(sorted({x for c in cfgs for x in c.sessions}))
+            syms = sorted({s for c in cfgs for s in c.symbols})
             mk = market(cfg)
             if mk and market_hours.is_open(market_hours.now_et()) or not any(store.data.get(s) for s in syms):
                 for s in syms:

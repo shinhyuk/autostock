@@ -739,3 +739,29 @@ def test_kis_holdings_merge_and_page_renders(kis, tmp_path):
     webdata._acct_cache.clear()
     page = web.render(cfg, "paper", "t")
     assert "보유 종목 없음" in page and 'id=chart' in page and "</main>" in page
+
+
+def test_afterhours_session_and_per_session_strategy(monkeypatch, tmp_path):
+    from autostock import market_hours as mh
+    from zoneinfo import ZoneInfo
+    K = ZoneInfo("Asia/Seoul")
+    monkeypatch.setattr(mh, "ENABLED", ("regular", "pre", "post", "day"))
+    s = mh.current(datetime(2026, 11, 24, 7, 0, tzinfo=K))          # 화 07:00 KST = 월 17:00 ET
+    assert s.name == "post" and s.key == "2026-11-23A"
+    assert mh.current(datetime(2026, 11, 24, 9, 58, tzinfo=K)) is None
+    assert mh.current(datetime(2026, 11, 24, 10, 1, tzinfo=K)).name == "day"
+    assert mh.session_of("2026-11-23T17:00:00-05:00") == "post" and mh.session_of("2026-11-23T10:00:00-05:00") == "regular"
+    assert mh.last_session(datetime(2026, 11, 24, 9, 58, tzinfo=K)).name == "post"
+
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="ai",
+                              sessions=("regular", "pre", "post", "day"))
+    m = Market(datetime(2026, 1, 5, 17, 0, tzinfo=ET))               # 애프터마켓
+    brain = Brain(dec())
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), brain, clock=lambda: m.now)
+    e.tick()
+    assert brain.snaps and brain.snaps[0]["session"] == "us_afterhours" and e.st.open   # Claude 가 판단해 진입
+    m2 = Market(datetime(2026, 1, 5, 11, 0, tzinfo=ET))              # 정규장은 규칙 전략
+    e2 = Engine(dataclasses.replace(cfg, data_dir=str(tmp_path / "b")), m2, PaperBroker(), Brain(dec()), clock=lambda: m2.now)
+    assert e2._strategy(m2.now) == "orb" and e._strategy(m.now) == "ai"
+    b = ClaudeBrain(cfg, client=SimpleNamespace())
+    assert "규칙 전략 검토 모드" in b.review_system and "규칙 전략 검토 모드" not in b.system

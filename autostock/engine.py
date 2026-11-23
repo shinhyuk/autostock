@@ -92,6 +92,9 @@ class Engine:
             o = self.orb.get(market_hours.session_key(now)) or {}
             data["orb"] = {"minutes": self.cfg.orb_minutes, "hh": o.get("hh"), "ll": o.get("ll"),
                            "status": self.orb_status, "symbol": self.cfg.bull}
+        sess = market_hours.current(now)
+        data["session"] = sess.name if sess else ""
+        data["strategy"] = self._strategy(now) if sess else ""
         try:
             os.makedirs(self.cfg.data_dir, exist_ok=True)
             tmp = self.live_path + ".tmp"
@@ -291,7 +294,8 @@ class Engine:
         return {
             "time_et": now.strftime("%Y-%m-%d %H:%M"),
             "trigger": self.trigger,
-            "session": {"day": "daytime_korea_hours", "pre": "us_premarket"}.get(sess.name if sess else "", "us_regular"),
+            "session": {"day": "daytime_korea_hours", "pre": "us_premarket", "post": "us_afterhours"}.get(
+                sess.name if sess else "", "us_regular"),
             "minutes_since_open": round(minutes_since_open(now)),
             "minutes_to_close": round(minutes_to_close(now)),
             "market": market,
@@ -351,6 +355,12 @@ class Engine:
             self._reject(d, "판단 중 가격이 0.5% 이상 움직임")
             return
         self._enter(d, last, snap["market"][d.symbol].get("atr14_pct"))
+
+    def _strategy(self, now: datetime) -> str:
+        sess = market_hours.current(now)
+        if sess and sess.name != "regular" and self.cfg.ext_strategy:
+            return self.cfg.ext_strategy
+        return self.cfg.strategy
 
     # ── 개장 범위 돌파(ORB) 전략 ────────────────────────────
     def _orb_tick(self, now: datetime) -> None:
@@ -479,7 +489,7 @@ class Engine:
             return
         if not self.preflight(now):
             return
-        if self.cfg.strategy == "orb":
+        if self._strategy(now) == "orb":
             self._orb_tick(now)
             return
         since = None if self.last_decision_at is None else (now - self.last_decision_at).total_seconds()

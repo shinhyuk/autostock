@@ -168,8 +168,11 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     pos = min(max((total + limit) / span * 100, 0), 100)
     lo, hi = sorted((zero, pos))
     color = "var(--up)" if total > 0 else "var(--dn)"
-    out.append(f"<section class='card hero'><div class=k>오늘 손익{' (평가 포함)' if unreal is not None else ''}"
-               f"{' · ' + e(s['date']) if s['date'] else ''}</div>"
+    key = s.get("date") or ""
+    sname = {"D": "주간거래", "P": "프리마켓", "A": "애프터마켓"}.get(key[-1:], "정규장") if key else ""
+    out.append(f"<section class='card hero'><div class=k>{'이번 세션' if len(cfg.sessions) > 1 else '오늘'} 손익"
+               f"{' (평가 포함)' if unreal is not None else ''}"
+               f"{' · ' + sname + ' ' + e(key[:10]) if key else ''}</div>"
                f"<div class='big {cls(total)}'>{arrow(total)} {won(total)}</div>"
                f"<div class=sub>{pct:+.2f}% · ${total:+.2f}"
                f"{' · 실현 ' + won(s['realized_usd']) if unreal is not None else ''}</div>"
@@ -191,7 +194,12 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    f"범위 위로 뚫으면 {e(cfg.bull)}, 아래로 뚫으면 {e(cfg.bear or '-')} 매수 · 엔비디아·SOXX 동조 필요 · "
                    f"손절 {cfg.orb_stop_pct}% · 익절 {cfg.orb_take_pct}% · 추적 {cfg.orb_trail_pct}% · "
                    f"개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회<br>"
-                   f"Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영).</div></section>")
+                   f"Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영)."
+                   + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
+                      f"Claude 가 3분마다 직접 판단하는 실험 — 백테스트에서 이 시간대에 통한 규칙이 없었습니다."
+                      if cfg.ext_strategy == "ai" and len(cfg.sessions) > 1 else "")
+                   + (f"<br>지금: <b>{market_hours.LABEL.get((live or {}).get('session') or '', '장 닫힘')}</b>"
+                      if live else "") + "</div></section>")
 
     # ── 보유 종목
     acct = webdata.account(cfg, mode, state, live)
@@ -283,6 +291,28 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                        f"<div><div class=k>평균 이익</div><div class='v up'>{won(sum(t['pnl'] for t in wins) / len(wins)) if wins else '-'}</div></div>"
                        f"<div><div class=k>평균 손실</div><div class='v dn'>{won(sum(t['pnl'] for t in done if t['pnl'] <= 0) / max(1, len(done) - len(wins))) if len(done) > len(wins) else '-'}</div></div></div></section>")
 
+    # ── 세션별
+    if trips and len(cfg.sessions) > 1:
+        by = defaultdict(lambda: [0.0, 0, 0, 0.0])
+        for t in trips:
+            if t["pnl"] is None:
+                continue
+            g = by[market_hours.session_of(t["buy_ts"] or t["sell_ts"])]
+            g[0] += t["pnl"]
+            g[1] += 1
+            g[2] += t["pnl"] > 0
+            g[3] += t["fees"]
+        strat = lambda x: ("개장 범위 돌파" if cfg.strategy == "orb" else "Claude 판단") if x == "regular" else (  # noqa: E731
+            "Claude 판단" if (cfg.ext_strategy or cfg.strategy) == "ai" else "개장 범위 돌파")
+        out.append("<h2>시간대별 성과</h2><section class=card><table>"
+                   "<tr><th>시간대</th><th>전략</th><th class=r>손익</th><th class=r>거래</th><th class=r>승률</th></tr>")
+        for x in ("regular", "pre", "post", "day"):
+            if x in by:
+                p_, n_, w_, _f = by[x]
+                out.append(f"<tr><td>{market_hours.LABEL[x]}</td><td class=mutt>{strat(x)}</td>"
+                           f"<td class='r {cls(p_)}'>{won(p_)}</td><td class=r>{n_}</td><td class=r>{w_ / n_ * 100:.0f}%</td></tr>")
+        out.append("</table></section>")
+
     # ── 일별
     if trips:
         days = defaultdict(lambda: [0.0, 0, 0, 0.0])
@@ -334,6 +364,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     model = (live or {}).get("model") or cfg.model
     out.append(f"<footer>{now:%m-%d %H:%M:%S} 기준 · 차트 10초, 나머지 2분마다 갱신 · ● 실행 중인 모드<br>"
                f"환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)"
+               f"{' · 애프터마켓 06:00~09:55' if 'post' in cfg.sessions else ''}"
                f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}"
                f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>"
                f"<script>{CHART_JS}</script>")

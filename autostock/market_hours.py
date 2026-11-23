@@ -2,6 +2,7 @@
 
 - regular: 미국 정규장 09:30~16:00 ET (평일)
 - pre    : 미국 프리마켓 04:00~09:25 ET (한국시간 겨울 18:00~23:25). 정규장 직전에 끝낸다.
+- post   : 미국 애프터마켓 16:00~19:55 ET (한국시간 겨울 06:00~09:55).
 - day    : 한국 낮의 미국주식 주간거래. 한국시간 평일 10:00 시작, 미국 동부 03:15 에 끝난 것으로 본다
            (실제 마감은 04:00 ET 이지만 증권사 마감이 더 이를 수 있어 여유를 둠. 겨울 17:15, 여름 16:15 KST).
 
@@ -21,7 +22,7 @@ ENABLED: tuple[str, ...] = ("regular",)      # 설정(SESSIONS)에 따라 실행
 
 @dataclass(frozen=True)
 class Session:
-    name: str            # regular | pre | day
+    name: str            # regular | pre | post | day
     open: datetime
     close: datetime
 
@@ -30,7 +31,7 @@ class Session:
         """일일 손익·한도를 묶는 단위. 주간거래는 한국 날짜 기준으로 따로 센다."""
         if self.name == "day":
             return self.open.astimezone(KST).strftime("%Y-%m-%d") + "D"
-        return self.open.strftime("%Y-%m-%d") + ("P" if self.name == "pre" else "")
+        return self.open.strftime("%Y-%m-%d") + {"pre": "P", "post": "A"}.get(self.name, "")
 
 
 def now_et() -> datetime:
@@ -45,6 +46,8 @@ def _sessions(now: datetime):
             continue
         if "regular" in ENABLED:
             yield Session("regular", datetime.combine(d, OPEN, ET), datetime.combine(d, CLOSE, ET))
+        if "post" in ENABLED:
+            yield Session("post", datetime.combine(d, CLOSE, ET), datetime.combine(d, time(19, 55), ET))
         if "pre" in ENABLED:
             yield Session("pre", datetime.combine(d, time(4, 0), ET), datetime.combine(d, time(9, 25), ET))
         if "day" in ENABLED:
@@ -65,6 +68,25 @@ def last_session(now: datetime) -> Session | None:
     past = [s for s in _sessions(now - timedelta(days=4)) if s.open <= now] + \
            [s for s in _sessions(now) if s.open <= now]
     return max(past, key=lambda s: s.open, default=None)
+
+
+LABEL = {"regular": "정규장", "pre": "프리마켓", "post": "애프터마켓", "day": "주간거래"}
+
+
+def session_of(ts: str) -> str:
+    """기록 시각으로 세션 이름을 추정한다 (설정과 무관하게 시간대만 보고)."""
+    try:
+        t = datetime.fromisoformat(ts).astimezone(ET)
+    except ValueError:
+        return ""
+    hm = (t.hour, t.minute)
+    if (9, 30) <= hm < (16, 0):
+        return "regular"
+    if (4, 0) <= hm < (9, 30):
+        return "pre"
+    if (16, 0) <= hm < (20, 0):
+        return "post"
+    return "day"
 
 
 def is_open(now: datetime) -> bool:

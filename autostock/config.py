@@ -80,6 +80,7 @@ class Settings:
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
     context_bars: int = 2
     strategy: str = "ai"                # ai(매 판단을 Claude) | orb(개장 범위 돌파 규칙 + Claude 검토 의견)
+    ext_strategy: str = ""              # 정규장 밖 세션의 전략 (비우면 strategy 와 같음)
     orb_minutes: int = 20               # 개장 후 이 시간 동안의 고가·저가가 범위
     orb_window_min: int = 120           # 개장 후 이 시간까지만 신규 진입
     orb_max_trades: int = 2
@@ -142,6 +143,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         style=_s("STYLE", "normal"),
         order_test_symbol=_s("ORDER_TEST_SYMBOL").upper(),
         strategy=_s("STRATEGY", "ai").lower(),
+        ext_strategy=_s("EXT_STRATEGY").lower(),
         orb_minutes=_i("ORB_MINUTES", 20),
         orb_window_min=_i("ORB_WINDOW_MIN", 120),
         orb_max_trades=_i("ORB_MAX_TRADES", 2),
@@ -179,7 +181,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         trail_min_pct=_f("TRAIL_MIN_PCT", 0.6),
         surge_pct=_f("SURGE_PCT", 1.0),
         sessions=tuple(x.strip() for x in _s("SESSIONS", "regular").split(",")
-                       if x.strip() in ("regular", "day", "pre")) or ("regular",),
+                       if x.strip() in ("regular", "day", "pre", "post")) or ("regular",),
         context=tuple(x.strip().upper() for x in _s("CONTEXT_SYMBOLS", "NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ").split(",")
                       if x.strip() and x.strip().upper() not in (_s("BULL_SYMBOL", "SOXL").upper(),
                                                                  _s("BEAR_SYMBOL", "SOXS").upper())),

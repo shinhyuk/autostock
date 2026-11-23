@@ -31,6 +31,7 @@ after_exit=코드가 방금 손절/익절/추적 손절로 포지션을 정리�
 거래량이 적고 호가 간격이 넓으며 주변 종목 신호도 약합니다. 이 세션에서도 매매는 하되 \
 손절·익절폭을 넓은 호가 간격을 감안해 조금 넓게 잡으세요. \
 '장 시작 후 10분 추세' 같은 정규장 습성은 이 세션에 적용하지 마세요.
+us_afterhours=미국 정규장 마감 후 시간외 거래로 거래량이 적고 호가 간격이 넓습니다. \
 us_premarket=미국 정규장 개장 전 시간외 거래로, 주간거래보다는 활발하지만 정규장보다 거래량이 적고 \
 호가 간격이 넓습니다. 정규장과 같은 기준으로 매매하되 손절·익절폭을 조금 넓게 잡으세요. 정규장 \
 개장 직전에는 모두 청산됩니다.
@@ -154,17 +155,16 @@ class ClaudeBrain:
         # 판단이 늦게 도착하면 이미 낡은 정보이므로 타임아웃을 짧게, 재시도는 1회만.
         self.client = client or anthropic.Anthropic(timeout=90.0, max_retries=1)
         self.system = (SYSTEM if cfg.bear else SYSTEM_SINGLE).format(bull=cfg.bull, bear=cfg.bear)
-        if cfg.strategy == "orb":
-            self.system += ORB_REVIEW
-        elif cfg.style == "aggressive":
+        if cfg.style == "aggressive":
             self.system += AGGRESSIVE
+        self.review_system = self.system + ORB_REVIEW   # 규칙 전략 진입 검토용
 
     def decide(self, snapshot: dict) -> Decision:
         """오류·거절 시에는 항상 HOLD를 돌려준다(보유 포지션은 코드 손절이 보호)."""
         req = dict(
             model=self.cfg.model,
             max_tokens=16000,
-            system=self.system,
+            system=self.review_system if snapshot.get("trigger") == "orb_entry_review" else self.system,
             output_config={"effort": self.cfg.effort},
             output_format=Decision,
             messages=[{"role": "user", "content": json.dumps(snapshot, ensure_ascii=False)}],
