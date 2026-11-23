@@ -90,6 +90,8 @@ class Settings:
     orb_trail_pct: float = 3.0
     orb_peers: tuple[str, ...] = ("NVDA", "SOXX")   # 돌파 방향으로 같이 움직여야 하는 종목
     orb_stop_mode: str = "pct"          # pct(orb_stop_pct) | mid(개장 범위 중간값 — 진입가 대비 %로 바꿔 보유 종목에 적용)
+    vol_filter_min: float = 0.0         # 최근 5일 평균 하루 변동폭(%)이 이보다 작으면 그날 정규장 매매 안 함 (0=끔)
+    risk_per_trade_pct: float = 0.0     # 손절까지 가면 잃는 돈이 자본의 이 % 가 되도록 수량을 줄임 (0=끔, 전액 매수)
     box: bool = False                   # 범위를 아직 벗어나지 않았으면 경계 근처에서 반대로 매매(박스권)
     box_zone: float = 0.2               # 경계에서 범위 폭의 이 비율 안쪽까지 오면 후보
     box_target: float = 0.8             # 반대 경계 쪽으로 범위 폭의 이 비율 지점에서 익절
@@ -160,6 +162,8 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         orb_trail_pct=_f("ORB_TRAIL_PCT", 3.0),
         orb_peers=tuple(x.strip().upper() for x in _s("ORB_PEERS", "NVDA,SOXX").split(",") if x.strip()),
         orb_stop_mode=_s("ORB_STOP_MODE", "pct").lower(),
+        vol_filter_min=_f("VOL_FILTER_MIN", 0.0),
+        risk_per_trade_pct=_f("RISK_PER_TRADE_PCT", 0.0),
         box=_s("BOX", "false").lower() in ("true", "1", "yes"),
         box_zone=_f("BOX_ZONE", 0.2),
         box_target=_f("BOX_TARGET", 0.8),

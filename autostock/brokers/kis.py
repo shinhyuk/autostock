@@ -175,6 +175,20 @@ class KISMarket:
             log.warning("호가 조회 실패: %s", e)
             return None
 
+    def daily_ranges(self, symbol: str, n: int = 8) -> list[tuple[str, float]]:
+        """최근 일봉의 (날짜 YYYYMMDD, 하루 변동폭 % = (고가-저가)/시가). 최신순."""
+        j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/dailyprice", "HHDFS76240000",
+                        {"AUTH": "", "EXCD": EXCD_QUOTE.get(symbol, "NAS"), "SYMB": symbol, "GUBN": "0", "BYMD": "", "MODP": "1"})
+        out = []
+        for r in (j.get("output2") or [])[:n]:
+            hi, lo = _num(r.get("high")), _num(r.get("low"))
+            base = _num(r.get("open")) or _num(r.get("clos"))
+            if r.get("xymd") and hi > 0 and lo > 0 and base > 0:
+                out.append((r["xymd"], (hi - lo) / base * 100))
+        if not out:
+            raise KISError(f"일봉 응답에 고가·저가가 없음: {list((j.get('output2') or [{}])[0].keys())[:12]}")
+        return out
+
     def bars(self, symbol: str, n: int = 120) -> list[Bar]:
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice",
                         "HHDFS76950200",

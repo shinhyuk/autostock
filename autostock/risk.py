@@ -65,6 +65,8 @@ class Risk:
         per_share_risk = price * (stop + 2 * c.fee_pct) / 100
         if per_share_risk > 0:
             qty = min(qty, int(room / per_share_risk))
+        if c.risk_per_trade_pct and stop > 0:        # 한 번 손절에 자본의 n% 만 잃게
+            qty = min(qty, int(c.capital_usd * c.risk_per_trade_pct / 100 / (price * stop / 100)))
         return max(qty, 0)
 
     # ── 청산 ────────────────────────────────────────────────

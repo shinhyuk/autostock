@@ -406,13 +406,20 @@ class Engine:
                 except Exception as e:
                     log.warning("동조 종목 %s 시가 조회 실패: %s", p, e)
                     o["peers"][p] = None
+            o["vol5"], o["vol_src"] = self._vol5(sess)
             self.orb[sess.key] = o
-            log.info("개장 %d분 범위: $%.2f ~ $%.2f", c.orb_minutes, o["ll"], o["hh"])
+            log.info("개장 %d분 범위: $%.2f ~ $%.2f · 5일 평균 변동폭 %s", c.orb_minutes, o["ll"], o["hh"],
+                     f"{o['vol5']:.1f}% ({o['vol_src']})" if o["vol5"] is not None else f"없음 ({o['vol_src']})")
+        self._record_day_range(sess, o)
         if self.st.open:
             self.orb_status = "보유 중"
             return
         if self.st.halted:
             self.orb_status = f"종료 ({self.st.halted})"
+            return
+        if c.vol_filter_min and o["vol5"] is not None and o["vol5"] < c.vol_filter_min:
+            self.orb_status = (f"오늘 쉼: 5일 평균 변동폭 {o['vol5']:.1f}% < {c.vol_filter_min}% "
+                               f"(조용한 장은 가짜 돌파가 많음)")
             return
         done = [b for b in self.market.bars(c.bull, 5) if b.ts < minute]
         if not done or (now - done[-1].ts).total_seconds() > 240:
@@ -462,6 +469,58 @@ class Engine:
         if self.st.open:
             self.orb_status = "보유 중 (돌파)"
             self._ai_review(now)
+
+    # ── 변동성 필터 자료 ────────────────────────────────────
+    def _ranges_path(self) -> str:
+        return os.path.join(self.cfg.data_dir, f"day_ranges_{self.cfg.bull}.json")
+
+    def _record_day_range(self, sess, o: dict) -> None:
+        """정규장 고가·저가를 직접 기록해 둔다 (일봉 조회가 안 될 때 대신 쓰려고)."""
+        if not self.cfg.vol_filter_min:
+            return
+        try:
+            bars = [b for b in self.market.bars(self.cfg.bull, 120) if b.ts >= sess.open]
+            if not bars:
+                return
+            o["dh"] = max([o.get("dh") or 0] + [b.high for b in bars])
+            o["dl"] = min([o.get("dl") or 1e18] + [b.low for b in bars])
+            o.setdefault("dopen", bars[0].open if bars[0].ts < sess.open + timedelta(minutes=2) else None)
+            if not o.get("dopen"):
+                return
+            try:
+                with open(self._ranges_path(), encoding="utf-8") as f:
+                    rec = json.load(f)
+            except (FileNotFoundError, ValueError):
+                rec = {}
+            rec[sess.key] = round((o["dh"] - o["dl"]) / o["dopen"] * 100, 3)
+            rec = dict(sorted(rec.items())[-15:])
+            with open(self._ranges_path(), "w", encoding="utf-8") as f:
+                json.dump(rec, f)
+        except Exception as e:
+            log.debug("변동폭 기록 실패: %s", e)
+
+    def _vol5(self, sess) -> tuple[float | None, str]:
+        """오늘 이전 최근 5거래일 평균 하루 변동폭(%). 증권사 일봉 → 직접 기록 순으로 시도, 3일치 미만이면 None."""
+        if not self.cfg.vol_filter_min:
+            return None, "필터 꺼짐"
+        today = sess.open.strftime("%Y%m%d")
+        try:
+            rows = [r for d, r in self.market.daily_ranges(self.cfg.bull) if d < today][:5]
+            if len(rows) >= 3:
+                return sum(rows) / len(rows), "증권사 일봉"
+            src = f"증권사 일봉 {len(rows)}일뿐"
+        except Exception as e:
+            log.warning("일봉 조회 실패 — 직접 기록한 변동폭 사용: %s", e)
+            src = "일봉 조회 실패"
+        try:
+            with open(self._ranges_path(), encoding="utf-8") as f:
+                rec = json.load(f)
+            rows = [v for k, v in sorted(rec.items()) if k < sess.key][-5:]
+            if len(rows) >= 3:
+                return sum(rows) / len(rows), "봇 기록"
+        except (FileNotFoundError, ValueError):
+            pass
+        return None, src + " · 기록 부족 → 필터 없이 매매"
 
     def _entries(self, kind: str) -> int:
         """이번 세션에 이 종류로 진입한 횟수 (부분 체결로 기록이 나뉘어도 한 번으로 센다)."""

@@ -878,3 +878,42 @@ def test_box_skipped_when_range_narrow_or_broken(orb_rig):
     m.now += timedelta(minutes=1)
     e.tick()
     assert e.st.open is None and "박스권 안 함" in e.orb_status
+
+
+def test_volatility_filter_and_risk_sizing(orb_rig, kis):
+    import json
+    # 증권사 일봉: 최근 5일 평균 4% → 기준 8% 미만이라 쉼
+    e, m, _ = orb_rig(vol_filter_min=8)
+    m.daily_ranges = lambda s, n=8: [("20260105", 20.0)] + [(f"2026010{d}", 4.0) for d in (2, 1)] + [("20251231", 4.0), ("20251230", 4.0)]
+    m.after, m.px["SOXL"] = [30.8], 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and "오늘 쉼" in e.orb_status and "4.0%" in e.orb_status   # 오늘(1/5) 값은 제외
+
+    # 일봉 조회 실패 → 봇 기록으로, 그것도 부족하면 필터 없이 매매
+    e2, m2, _ = orb_rig(vol_filter_min=8, data_dir=e.cfg.data_dir + "/b")
+    def boom(*a, **k):
+        raise RuntimeError("no daily")
+    m2.daily_ranges = boom
+    m2.after, m2.px["SOXL"] = [30.8], 30.8
+    m2.now += timedelta(minutes=1)
+    e2.tick()
+    assert e2.st.open is not None and "필터 없이" in e2.orb["2026-01-05"]["vol_src"]
+    rec = json.load(open(e2._ranges_path()))
+    assert rec["2026-01-05"] > 0                                     # 오늘 변동폭을 직접 기록
+    json.dump({"2026-01-01": 12, "2026-01-02": 10, "2026-01-03": 11, **rec}, open(e2._ranges_path(), "w"))
+    vol, src = e2._vol5(SimpleNamespace(open=datetime(2026, 1, 6, 9, 30, tzinfo=ET), key="2026-01-06"))
+    assert src == "봇 기록" and vol > 8
+
+    # 손절 폭에 맞춘 수량: 자본 $714, 손절 5% → 3% 위험이면 $21.4 / ($30 × 5%) = 14주
+    r = Risk(dataclasses.replace(Settings(), risk_per_trade_pct=3, max_stop_loss_pct=6, fee_pct=0))
+    assert r.size(DayState(), dec(stop=5.0), 30.0) == 14
+    assert Risk(dataclasses.replace(Settings(), max_stop_loss_pct=6, fee_pct=0)).size(DayState(), dec(stop=5.0), 30.0) == 23
+
+    # KIS 일봉 파싱
+    c, _ = kis("real")
+    orig = c.http.get
+    c.http.get = lambda url, **kw: (SimpleNamespace(status_code=200, text="", json=lambda: {"rt_cd": "0", "output2": [
+        {"xymd": "20260105", "open": "30", "high": "33", "low": "30"}, {"xymd": "20260102", "open": "0", "clos": "40", "high": "42", "low": "38"}]})
+        if url.endswith("dailyprice") else orig(url, **kw))
+    assert KISMarket(c).daily_ranges("SOXL") == [("20260105", 10.0), ("20260102", 10.0)]

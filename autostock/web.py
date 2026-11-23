@@ -199,6 +199,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    + (f"<b>박스권</b>: 범위 폭 {cfg.box_min_width}% 이상인 날, 범위를 벗어나기 전까지 아래 경계 근처 반등 → {e(cfg.bull)}, "
                       f"위 경계 근처 반락 → {e(cfg.bear)} · 익절은 반대 경계의 {cfg.box_target * 100:.0f}% 지점, 손절은 경계 밖 "
                       f"{cfg.box_stop * 100:.0f}% · 하루 {cfg.box_max}회<br>" if cfg.box else "")
+                   + (f"<b>변동성 필터</b>: 최근 5일 평균 하루 변동폭 {cfg.vol_filter_min}% 미만이면 그날 쉼<br>" if cfg.vol_filter_min else "")
+                   + (f"<b>매수 금액</b>: 손절 시 자본의 {cfg.risk_per_trade_pct}%만 잃도록 수량 조절<br>" if cfg.risk_per_trade_pct else "")
                    + "Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영)."
                    + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
                       f"Claude 가 3분마다 직접 판단하는 실험 — 백테스트에서 이 시간대에 통한 규칙이 없었습니다."
