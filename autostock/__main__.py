@@ -99,6 +99,8 @@ def main() -> int:
     if bad:
         print(f".env 의 MODE 값이 잘못됐습니다: {bad}", file=sys.stderr)
         return 2
+    from . import market_hours
+    market_hours.ENABLED = cfg.sessions
     if a.mode:
         cfg = dataclasses.replace(cfg, mode=a.mode)
     elif len(cfg.modes) > 1 and not (a.simulate or a.check or a.order_test):
@@ -157,7 +159,7 @@ def main() -> int:
         if a.order_test:
             from .market_hours import is_open, now_et
             if not is_open(now_et()):
-                print("정규장 시간(09:30~16:00 ET, 한국시간 밤 11:30~새벽 6:00)에만 테스트할 수 있습니다.")
+                print("거래 세션 시간에만 테스트할 수 있습니다 (정규장: 한국시간 밤 11:30~새벽 6:00).")
                 return 2
             ok = order_test(cfg, market, broker, out=print)
             print("\n주문 경로 정상입니다." if ok else "\n주문 테스트 실패.")

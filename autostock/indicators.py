@@ -32,14 +32,15 @@ def rsi(values: list[float], period: int = 14) -> float | None:
     return 100 - 100 / (1 + ag / al)
 
 
-def vwap(bars: list[Bar]) -> float | None:
-    """마지막 봉과 같은 날짜의 정규장(09:30 이후) 봉만으로 계산한 당일 VWAP."""
+def vwap(bars: list[Bar], since=None) -> float | None:
+    """세션 시작(since) 이후 봉으로 계산한 VWAP. since 가 없으면 마지막 봉 날짜의 09:30 이후."""
     if not bars:
         return None
-    day = bars[-1].ts.date()
+    if since is None:
+        since = bars[-1].ts.replace(hour=9, minute=30, second=0, microsecond=0)
     pv = vol = 0.0
     for b in bars:
-        if b.ts.date() == day and (b.ts.hour, b.ts.minute) >= (9, 30):
+        if b.ts >= since:
             pv += (b.high + b.low + b.close) / 3 * b.volume
             vol += b.volume
     return pv / vol if vol else None
@@ -60,14 +61,14 @@ def ret_pct(closes: list[float], minutes: int) -> float | None:
     return (closes[-1] / closes[-1 - minutes] - 1) * 100
 
 
-def summarize(bars: list[Bar]) -> dict:
+def summarize(bars: list[Bar], since=None) -> dict:
     closes = [b.close for b in bars]
     r = lambda x: None if x is None else round(x, 3)  # noqa: E731
     return {
         "ema9": r(ema(closes, 9)),
         "ema20": r(ema(closes, 20)),
         "rsi14": r(rsi(closes, 14)),
-        "vwap": r(vwap(bars)),
+        "vwap": r(vwap(bars, since)),
         "atr14_pct": r(atr_pct(bars)),
         "ret_5m_pct": r(ret_pct(closes, 5)),
         "ret_15m_pct": r(ret_pct(closes, 15)),

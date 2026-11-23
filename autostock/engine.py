@@ -10,6 +10,7 @@ from typing import Callable
 
 from . import indicators
 from .config import Settings
+from . import market_hours
 from .market_hours import CLOSE, is_open, minutes_since_open, minutes_to_close, now_et
 from .models import Broker, Decision, MarketData
 from .risk import Risk
@@ -100,17 +101,24 @@ class Engine:
         self.st.save(self.state_path)
 
     # ── 실주문 모드의 사전 점검 ─────────────────────────────
-    def _ok_file(self, mode: str) -> str:
-        return os.path.join(self.cfg.data_dir, f"ordertest_{mode}.ok")
+    def _ok_file(self, mode: str, session: str = "regular") -> str:
+        suffix = "" if session == "regular" else f"_{session}"
+        return os.path.join(self.cfg.data_dir, f"ordertest_{mode}{suffix}.ok")
 
     def preflight(self, now: datetime) -> bool:
         """kis-demo / live 는 1주 왕복 주문 테스트를 통과해야 매매를 시작한다(통과하면 다음부터 생략).
         live 는 kis-demo 가 함께 돌고 있으면 모의투자 테스트가 먼저 통과할 때까지 기다린다.
         실패하면 그날은 그 모드의 매매를 하지 않고 다음 거래일에 다시 시도한다."""
         c = self.cfg
-        if c.mode not in ("kis-demo", "live") or os.path.exists(self._ok_file(c.mode)):
+        sess = market_hours.current(now)
+        sname = sess.name if sess else "regular"
+        if c.mode == "kis-demo" and sname == "day":
+            return False             # 모의투자 서버는 주간거래 주문을 지원하지 않는다
+        if c.mode not in ("kis-demo", "live") or os.path.exists(self._ok_file(c.mode, sname)):
             return True
         if self.st.halted or minutes_since_open(now) < c.no_entry_after_open_min:
+            return False
+        if minutes_to_close(now) < c.no_entry_before_close_min:
             return False
         if c.mode == "live" and "kis-demo" in c.modes and not os.path.exists(self._ok_file("kis-demo")):
             if self._waiting_logged != self.st.date:
@@ -124,9 +132,9 @@ class Engine:
             ok = False
         self._journal("ordertest", ok=ok)
         if ok:
-            with open(self._ok_file(c.mode), "w") as f:
+            with open(self._ok_file(c.mode, sname), "w") as f:
                 f.write(now.isoformat())
-            log.info("주문 테스트 통과 — %s 매매를 시작합니다.", c.mode)
+            log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
         else:
             self.st.halted = "주문 테스트 실패"
             log.error("주문 테스트 실패 — 오늘 %s 매매는 하지 않습니다. 다음 거래일에 다시 시도합니다.", c.mode)
@@ -197,16 +205,18 @@ class Engine:
     # ── AI 판단 ─────────────────────────────────────────────
     def snapshot(self, now: datetime) -> dict:
         c, st = self.cfg, self.st
+        sess = market_hours.current(now)
+        since = sess.open if sess else None
         market = {}
         for s in c.symbols:
             q, bars = self.market.quote(s), self.market.bars(s, 120)
-            today = [b for b in bars if b.ts.date() == now.date() and (b.ts.hour, b.ts.minute) >= (9, 30)]
+            today = [b for b in bars if since and b.ts >= since]
             market[s] = {
                 "last": q.last,
                 "day_change_pct": round((q.last / q.prev_close - 1) * 100, 2) if q.prev_close else None,
                 "day_high": max((b.high for b in today), default=None),
                 "day_low": min((b.low for b in today), default=None),
-                **indicators.summarize(bars),
+                **indicators.summarize(bars, since),
                 "last_bar_age_min": round((now - bars[-1].ts).total_seconds() / 60, 1) if bars else None,
             }
             if s == c.bull:   # 봉 데이터는 한 종목만(반대 종목은 거의 거울상)
@@ -240,6 +250,7 @@ class Engine:
         return {
             "time_et": now.strftime("%Y-%m-%d %H:%M"),
             "trigger": self.trigger,
+            "session": "daytime_korea_hours" if sess and sess.name == "day" else "us_regular",
             "minutes_since_open": round(minutes_since_open(now)),
             "minutes_to_close": round(minutes_to_close(now)),
             "market": market,
@@ -283,7 +294,8 @@ class Engine:
             self._reject(d, why)
             return
         ages = [m["last_bar_age_min"] for m in snap["market"].values()]
-        if any(a is None or a > 3 for a in ages):
+        stale = 6 if snap["session"] != "us_regular" else 3
+        if any(a is None or a > stale for a in ages):
             self._reject(d, "시세가 갱신되지 않음(휴장/지연 추정)")
             return
         if t and not self._close("반대 방향 전환: " + d.reason, self.market.quote(t.symbol).last):
@@ -299,7 +311,7 @@ class Engine:
     # ── 루프 ────────────────────────────────────────────────
     def tick(self) -> None:
         now = self.clock()
-        if self.st.roll(now.strftime("%Y-%m-%d")):
+        if self.st.roll(market_hours.session_key(now)):
             log.info("새 거래일 %s 시작 — 목표 %s / 손실한도 %s", self.st.date,
                      self._krw(self.cfg.target_usd), self._krw(-self.cfg.max_loss_usd))
             self.recent_decisions.clear()
@@ -354,13 +366,15 @@ class Engine:
                     log.info("장 종료(또는 개장까지 2시간 이상) — 실행 종료")
                     return "closed"
                 if was_open is not False:
-                    log.info("장 시간이 아님 (ET %s). 정규장 09:30~16:00 ET 대기 중…", now.strftime("%a %H:%M"))
+                    nxt = market_hours.next_open(now)
+                    log.info("장 시간이 아님 (ET %s). 다음 개장: 한국시간 %s", now.strftime("%a %H:%M"),
+                             nxt.astimezone(market_hours.KST).strftime("%m-%d %H:%M") if nxt else "?")
                     was_open = False
                 self._beat(now, "closed")
                 self.sleep(30)
                 continue
             if was_open is not True:
-                log.info("정규장 진행 중 — 매매 루프 시작")
+                log.info("장 진행 중 (%s 세션) — 매매 루프 시작", market_hours.current(now).name)
                 was_open = True
             try:
                 self.tick()

@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
-from . import config
+from . import config, market_hours
 
 MODES = {"paper": "가상매매", "kis-demo": "모의투자", "live": "실계좌"}
 KST = ZoneInfo("Asia/Seoul")
@@ -82,13 +82,12 @@ def _kst(ts: str, fmt: str = "%H:%M") -> str:
         return ts[11:16]
 
 
-def _next_open(now: datetime) -> str:
-    d = now.astimezone(ET)
-    if d.time() >= time(9, 30):
-        d += timedelta(days=1)
-    while d.weekday() >= 5:
-        d += timedelta(days=1)
-    o = d.replace(hour=9, minute=30, second=0, microsecond=0).astimezone(KST)
+def _next_open(cfg, now: datetime) -> str:
+    market_hours.ENABLED = cfg.sessions
+    o = market_hours.next_open(now)
+    if o is None:
+        return "?"
+    o = o.astimezone(KST)
     return f"{'월화수목금토일'[o.weekday()]}요일 {o:%H:%M}"
 
 
@@ -126,7 +125,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     elif live["status"] == "error":
         dot, label = "bad", "오류 발생"
     else:
-        dot, label = "", f"장 닫힘 · {_next_open(now)} 개장"
+        dot, label = "", f"장 닫힘 · {_next_open(cfg, now)} 개장"
 
     out = [f"<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
            f"<meta http-equiv=refresh content=30><meta name=referrer content=no-referrer><title>autostock</title>"
@@ -230,7 +229,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         out.append("<div class='card note' style='margin-top:14px'>아직 기록이 없습니다. 이 모드로 장이 열린 적이 없습니다.</div>")
     model = (live or {}).get("model") or cfg.model
     out.append(f"<footer>{now:%m-%d %H:%M:%S} 기준 · 30초마다 자동 새로고침 · ● 실행 중인 모드<br>"
-               f"환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 미국 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)</footer></main>")
+               f"환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)"
+               f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}</footer></main>")
     return "".join(out)
 
 

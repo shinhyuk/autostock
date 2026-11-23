@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from .. import market_hours
 from ..market_hours import ET
 from ..models import Bar, Fill, Position, Quote
 
@@ -28,6 +29,17 @@ BASE = {
 # SOXL/SOXS는 NYSE Arca 상장 → 시세 코드 AMS, 주문 코드 AMEX
 EXCD_QUOTE = {"SOXL": "AMS", "SOXS": "AMS", "TSM": "NYS"}     # 표에 없으면 나스닥(NAS)
 EXCD_ORDER = {"SOXL": "AMEX", "SOXS": "AMEX"}
+EXCD_DAY = {"NAS": "BAQ", "NYS": "BAY", "AMS": "BAA"}           # 주간거래 시세 코드
+
+
+def _is_day() -> bool:
+    s = market_hours.current(market_hours.now_et())
+    return bool(s and s.name == "day")
+
+
+def _excd(symbol: str) -> str:
+    code = EXCD_QUOTE.get(symbol, "NAS")
+    return EXCD_DAY[code] if _is_day() else code
 
 
 class KISError(RuntimeError):
@@ -121,7 +133,7 @@ class KISMarket:
 
     def quote(self, symbol: str) -> Quote:
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/price", "HHDFS00000300",
-                        {"AUTH": "", "EXCD": EXCD_QUOTE.get(symbol, "NAS"), "SYMB": symbol})
+                        {"AUTH": "", "EXCD": _excd(symbol), "SYMB": symbol})
         o = j["output"]
         last = _num(o.get("last"))
         if last <= 0:
@@ -131,12 +143,15 @@ class KISMarket:
     def bars(self, symbol: str, n: int = 120) -> list[Bar]:
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice",
                         "HHDFS76950200",
-                        {"AUTH": "", "EXCD": EXCD_QUOTE.get(symbol, "NAS"), "SYMB": symbol, "NMIN": "1",
+                        {"AUTH": "", "EXCD": _excd(symbol), "SYMB": symbol, "NMIN": "1",
                          "PINC": "1", "NEXT": "", "NREC": str(min(n, 120)), "FILL": "", "KEYB": ""})
-        out = []
+        out, day = [], _is_day()
         for r in j.get("output2") or []:
             try:
-                ts = datetime.strptime(r["xymd"] + r["xhms"], "%Y%m%d%H%M%S").replace(tzinfo=ET)
+                if day and r.get("kymd") and r.get("khms"):     # 주간거래는 한국시간 필드가 확실
+                    ts = datetime.strptime(r["kymd"] + r["khms"], "%Y%m%d%H%M%S").replace(tzinfo=KST).astimezone(ET)
+                else:
+                    ts = datetime.strptime(r["xymd"] + r["xhms"], "%Y%m%d%H%M%S").replace(tzinfo=ET)
             except (KeyError, ValueError):
                 continue
             out.append(Bar(ts, _num(r.get("open")), _num(r.get("high")), _num(r.get("low")),
@@ -147,11 +162,11 @@ class KISMarket:
 
 class KISBroker:
     def __init__(self, client: KISClient, account_no: str, product: str = "01",
-                 limit_slip_pct: float = 0.3, fill_timeout: float = 20.0):
+                 limit_slip_pct: float = 0.3, fill_timeout: float = 20.0, day_slip_pct: float = 0.5):
         if len(account_no) != 8:
             raise ValueError("KIS_ACCOUNT_NO는 계좌번호 앞 8자리")
         self.c, self.cano, self.prdt = client, account_no, product
-        self.slip, self.timeout = limit_slip_pct / 100, fill_timeout
+        self.slip, self.timeout, self.day_slip = limit_slip_pct / 100, fill_timeout, day_slip_pct / 100
         self.v = "V" if client.env == "demo" else "T"
 
     def position(self, symbol: str) -> Position | None:
@@ -169,16 +184,23 @@ class KISBroker:
         return p.qty if p else 0
 
     def _order(self, side: str, symbol: str, qty: int, limit: float) -> Fill | None:
-        if side == "buy":
-            tr = self.v + "TTT1002U"
-        else:                       # 미국 매도: 실전 TTTT1006U / 모의 VTTT1001U
-            tr = "VTTT1001U" if self.v == "V" else "TTTT1006U"
+        day = _is_day()
+        body = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": EXCD_ORDER[symbol],
+                "PDNO": symbol, "ORD_QTY": str(qty), "OVRS_ORD_UNPR": f"{limit:.2f}",
+                "CTAC_TLNO": "", "MGCO_APTM_ODNO": "", "ORD_SVR_DVSN_CD": "0", "ORD_DVSN": "00"}
+        if day:                     # 주간거래는 별도 주문 API (실전 전용, 지정가만)
+            if self.v == "V":
+                raise KISError("모의투자는 주간거래 주문을 지원하지 않습니다")
+            path, tr = "/uapi/overseas-stock/v1/trading/daytime-order", "TTTS6036U" if side == "buy" else "TTTS6037U"
+        else:
+            path = "/uapi/overseas-stock/v1/trading/order"
+            body["SLL_TYPE"] = "00" if side == "sell" else ""
+            if side == "buy":
+                tr = self.v + "TTT1002U"
+            else:                   # 미국 매도: 실전 TTTT1006U / 모의 VTTT1001U
+                tr = "VTTT1001U" if self.v == "V" else "TTTT1006U"
         before = self._qty(symbol)
-        j = self.c.call("POST", "/uapi/overseas-stock/v1/trading/order", tr, {
-            "CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": EXCD_ORDER[symbol],
-            "PDNO": symbol, "ORD_QTY": str(qty), "OVRS_ORD_UNPR": f"{limit:.2f}",
-            "CTAC_TLNO": "", "MGCO_APTM_ODNO": "", "SLL_TYPE": "00" if side == "sell" else "",
-            "ORD_SVR_DVSN_CD": "0", "ORD_DVSN": "00"})
+        j = self.c.call("POST", path, tr, body)
         odno = (j.get("output") or {}).get("ODNO", "")
         log.info("주문 접수 %s %s x%d @%.2f (주문번호 %s)", side, symbol, qty, limit, odno)
 
@@ -189,7 +211,7 @@ class KISBroker:
             if filled >= qty:
                 break
         if filled < qty:
-            self._cancel(symbol, odno, qty - filled)
+            self._cancel(symbol, odno, qty - filled, day)
             time.sleep(1.5)
             filled = abs(self._qty(symbol) - before)   # 취소 직전 체결분 반영
         if filled <= 0:
@@ -197,13 +219,16 @@ class KISBroker:
             return None
         return Fill(symbol, side, min(filled, qty), self._fill_price(symbol, side, odno) or limit)
 
-    def _cancel(self, symbol: str, odno: str, qty: int) -> None:
-        try:
-            self.c.call("POST", "/uapi/overseas-stock/v1/trading/order-rvsecncl", self.v + "TTT1004U", {
-                "CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": EXCD_ORDER[symbol],
+    def _cancel(self, symbol: str, odno: str, qty: int, day: bool = False) -> None:
+        body = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": EXCD_ORDER[symbol],
                 "PDNO": symbol, "ORGN_ODNO": odno, "RVSE_CNCL_DVSN_CD": "02",
-                "ORD_QTY": str(qty), "OVRS_ORD_UNPR": "0", "MGCO_APTM_ODNO": "",
-                "ORD_SVR_DVSN_CD": "0"})
+                "ORD_QTY": str(qty), "OVRS_ORD_UNPR": "0", "MGCO_APTM_ODNO": "", "ORD_SVR_DVSN_CD": "0"}
+        try:
+            if day:
+                self.c.call("POST", "/uapi/overseas-stock/v1/trading/daytime-order-rvsecncl", "TTTS6038U",
+                            {**body, "CTAC_TLNO": ""})
+            else:
+                self.c.call("POST", "/uapi/overseas-stock/v1/trading/order-rvsecncl", self.v + "TTT1004U", body)
         except KISError as e:       # 이미 전량 체결된 경우 등
             log.warning("주문 취소 실패(이미 체결됐을 수 있음): %s", e)
 
@@ -232,7 +257,10 @@ class KISBroker:
         return None
 
     def buy(self, symbol: str, qty: int, ref_price: float) -> Fill | None:
-        return self._order("buy", symbol, qty, round(ref_price * (1 + self.slip), 2))
+        return self._order("buy", symbol, qty, round(ref_price * (1 + self._slip()), 2))
 
     def sell(self, symbol: str, qty: int, ref_price: float) -> Fill | None:
-        return self._order("sell", symbol, qty, round(ref_price * (1 - self.slip), 2))
+        return self._order("sell", symbol, qty, round(ref_price * (1 - self._slip()), 2))
+
+    def _slip(self) -> float:        # 주간거래는 호가 간격이 넓어 지정가 여유를 더 준다
+        return self.day_slip if _is_day() else self.slip

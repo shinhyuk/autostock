@@ -196,8 +196,9 @@ class FakeHTTP:
         self.calls.append((url.rsplit("/", 1)[-1], (headers or {}).get("tr_id"), json))
         if url.endswith("tokenP"):
             return self._resp({"access_token": "T", "expires_in": 86400})
-        if url.endswith("/order"):
-            self.pending = int(json["ORD_QTY"]) * (1 if json["SLL_TYPE"] == "" else -1)
+        if url.endswith("/order") or url.endswith("/daytime-order"):
+            sell = json.get("SLL_TYPE") == "00" or (headers or {}).get("tr_id") == "TTTS6037U"
+            self.pending = int(json["ORD_QTY"]) * (-1 if sell else 1)
             return self._resp({"output": {"ODNO": "77"}})
         self.pending = 0
         return self._resp({"output": {}})
@@ -383,3 +384,54 @@ def test_old_state_file_still_loads(tmp_path):
                                       "stop_pct": 2.0, "take_pct": 3.0, "buy_fee": 0.1}}))
     st = DayState.load(str(p))
     assert st.open.trail_pct == 0 and st.last_loss_symbol == ""
+
+
+def test_sessions_regular_and_day(monkeypatch):
+    from autostock import market_hours as mh
+    from zoneinfo import ZoneInfo
+    K = ZoneInfo("Asia/Seoul")
+    monkeypatch.setattr(mh, "ENABLED", ("regular", "day"))
+    at = lambda *a: datetime(*a, tzinfo=K)                           # noqa: E731
+    s = mh.current(at(2026, 11, 23, 10, 30))                         # 월요일 낮 (겨울)
+    assert s.name == "day" and s.key == "2026-11-23D"
+    assert mh.minutes_since_open(at(2026, 11, 23, 10, 30)) == 30
+    assert mh.current(at(2026, 11, 23, 9, 59)) is None
+    assert mh.current(at(2026, 11, 23, 17, 14)).name == "day"        # 03:14 ET
+    assert mh.current(at(2026, 11, 23, 17, 16)) is None
+    r = mh.current(at(2026, 11, 23, 23, 45))
+    assert r.name == "regular" and r.key == "2026-11-23"
+    assert mh.current(at(2026, 11, 28, 11, 0)) is None               # 토요일
+    assert mh.current(at(2026, 7, 6, 16, 14)).name == "day"          # 여름: 03:14 EDT
+    assert mh.current(at(2026, 7, 6, 16, 16)) is None
+    assert mh.next_open(at(2026, 11, 23, 17, 30)).astimezone(K).hour == 23
+    monkeypatch.setattr(mh, "ENABLED", ("regular",))
+    assert mh.current(at(2026, 11, 23, 10, 30)) is None
+
+
+def test_kis_daytime_uses_separate_order_api(kis, monkeypatch):
+    from autostock.brokers import kis as k
+    monkeypatch.setattr(k, "_is_day", lambda: True)
+    c, b = kis("real")
+    f = b.buy("SOXL", 1, 30.0)
+    assert f.qty == 1
+    order = next(x for x in c.http.calls if x[0] == "daytime-order")
+    assert order[1] == "TTTS6036U" and "SLL_TYPE" not in order[2] and order[2]["OVRS_ORD_UNPR"] == "30.15"
+    KISMarket(c).quote("NVDA")
+    assert c.http.calls[-1][2]["EXCD"] == "BAQ"
+    KISMarket(c).quote("SOXL")
+    assert c.http.calls[-1][2]["EXCD"] == "BAA"
+    c2, b2 = kis("demo")
+    with pytest.raises(k.KISError):
+        b2.buy("SOXL", 1, 30.0)                                      # 모의투자는 주간거래 불가
+
+
+def test_day_session_has_separate_day_state_and_order_test(rig, monkeypatch):
+    import os
+    from autostock import market_hours as mh
+    monkeypatch.setattr(mh, "ENABLED", ("regular", "day"))
+    e, m, _ = rig(dec(), mode="live", modes=("live",), at=(22, 0))  # 22:00 ET 일요일밤 = 월요일 12:00 KST
+    m.now = datetime(2026, 1, 4, 22, 0, tzinfo=ET)
+    open(e._ok_file("live"), "w").close()                            # 정규장 테스트 통과 상태여도
+    e.tick()
+    assert e.st.date == "2026-01-05D"
+    assert os.path.exists(e._ok_file("live", "day")) and e.st.open   # 주간거래는 따로 테스트 후 진입
