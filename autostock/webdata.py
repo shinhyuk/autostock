@@ -241,6 +241,35 @@ def collector(store: BarStore, stop: threading.Event) -> None:
         stop.wait(60)
 
 
+def _levels_from_bars(cfg, store: BarStore, sess, now) -> dict:
+    """봇 상태 파일에 경계가 없을 때를 대비해, 모아 둔 1분봉과 노이즈 기록으로 직접 계산한다."""
+    out: dict = {}
+    o0 = sess.open.timestamp()
+    lb = store.get(cfg.bull, o0)
+    end = o0 + cfg.orb_minutes * 60
+    rb = [b for b in lb if b[0] / 1000 < end]
+    if now.timestamp() < end or len(rb) < cfg.orb_minutes * 0.7:
+        return out
+    hh, ll = max(b[2] for b in rb), min(b[3] for b in rb)
+    out.update(hh=hh, ll=ll, symbol=cfg.bull, src="1분봉 계산")
+    broke = any(b[4] > hh or b[4] < ll for b in lb if b[0] / 1000 >= end)
+    w, mid = hh - ll, (hh + ll) / 2
+    if cfg.box and not broke and w / mid * 100 >= cfg.box_min_width:
+        out["box"] = [round(ll + cfg.box_zone * w, 4), round(hh - cfg.box_zone * w, 4)]
+    if cfg.noise and lb and lb[0][0] / 1000 < o0 + 120:
+        from .noise import NoiseBook
+        book = NoiseBook(os.path.join(cfg.data_dir, f"noise_{cfg.bull}.json"))
+        since = (min(now.timestamp(), sess.close.timestamp()) - o0) / 60
+        cp = int(since // cfg.noise_every) * cfg.noise_every
+        day = sess.key
+        sigma = book.sigma(day, cp, cfg.noise_lookback) if cp >= cfg.noise_every else None
+        if sigma:
+            base = lb[0][1]
+            pc = book.prev_close(day) or base
+            out["noise"] = [round(min(base, pc) * (1 - sigma), 4), round(max(base, pc) * (1 + sigma), 4)]
+    return out
+
+
 def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, events) -> dict:
     """차트 데이터: 1분봉(OHLCV), 세션 VWAP, 매매 지점, 보유 중이면 진입·손절·익절·추적선, 개장 범위."""
     if sym not in cfg.symbols:
@@ -293,7 +322,9 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
             else:
                 lines.append({"v": round(ent * (1 + (tr + 2 * cfg.fee_pct) / 100), 4), "k": "trail",
                               "l": "추적 손절 시작선"})
-    orb = (live or {}).get("orb") or {}
+    orb = dict((live or {}).get("orb") or {})
+    if cfg.strategy == "orb" and sess and sess.name == "regular":
+        orb = {**_levels_from_bars(cfg, store, sess, now), **{k: v for k, v in orb.items() if v}}
     rng = [orb["ll"], orb["hh"]] if orb.get("hh") and orb.get("symbol") == sym else None
     note = None
     if orb.get("hh") and sym == cfg.bear and orb.get("symbol") == cfg.bull:

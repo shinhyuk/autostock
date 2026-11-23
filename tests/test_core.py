@@ -1002,3 +1002,26 @@ def test_chart_maps_soxl_bounds_onto_soxs(tmp_path, monkeypatch):
     assert v["범위 하단"] == 19.0 and v["범위 상단"] == 21.0         # SOXL +5% → SOXS -5%
     assert d["range"] == [19.0, 21.0] and "환산" in d["note"]
     assert any("SOXS 매수 구간 (이 아래)" in x["l"] and x["v"] == 19.4 for x in d["lines"])
+
+
+def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
+    from autostock import market_hours, webdata
+    from autostock.noise import NoiseBook
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    d0 = datetime.now(ET) - timedelta(days=1)
+    while d0.weekday() >= 5:
+        d0 -= timedelta(days=1)
+    t0 = d0.replace(hour=9, minute=30, second=0, microsecond=0)
+    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 40, 40 + (i % 5) / 10, 40 - (i % 3) / 10, 40, 1) for i in range(40)])
+    book = NoiseBook(str(tmp_path / "noise_SOXL.json"))
+    for k in range(14):
+        book.record((d0 - timedelta(days=20 - k)).strftime("%Y-%m-%d"), open_=40.0, offset=30, price=40.8, close=40.0)
+    book.save()
+    monkeypatch.setattr(market_hours, "now_et", lambda: t0 + timedelta(minutes=40))
+    monkeypatch.setattr(webdata, "market", lambda cfg: None)
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", box=True, box_min_width=0.5, noise=True)
+    d = webdata.chart(cfg, "paper", "SOXL", 0, store, None, None, [])      # 봇 상태 파일 없음
+    v = {x["l"]: x["v"] for x in d["lines"]}
+    assert d["range"] == [39.8, 40.4] and v["범위 상단"] == 40.4 and v["범위 하단"] == 39.8
+    assert "박스 SOXL 매수 구간 (이 아래)" in v
+    assert v["노이즈 상단"] == 40.8 and v["노이즈 하단"] == 39.2                # 시그마 2%
