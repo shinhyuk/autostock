@@ -53,8 +53,83 @@ nav a.on{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weig
 .tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}.tag.buy{border-color:var(--up);color:var(--up)}.tag.sell{border-color:var(--dn);color:var(--dn)}
 table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}th,td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left}
 th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr:last-child td{border-bottom:0}
+.seg{display:flex;gap:6px;align-items:center;margin-bottom:8px}.seg button{font:inherit;font-size:13px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer}
+.seg button.on{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
+.lg{margin-left:auto;font-size:12px;color:var(--mut);display:flex;align-items:center;gap:4px}.lg i{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;margin-left:6px}
+.lg i.b{border-bottom:9px solid var(--up)}.lg i.s{border-top:9px solid var(--dn)}
+.chartwrap{position:relative;touch-action:pan-y}#chart{min-height:230px}#chart svg{display:block}
+#tip{display:none;position:absolute;top:0;pointer-events:none;background:var(--acc);color:var(--bg);font-size:12px;padding:5px 8px;border-radius:8px;white-space:nowrap;font-variant-numeric:tabular-nums}
 footer{color:var(--mut);font-size:12px;margin:20px 2px}
 """
+
+
+CHART_JS = r"""
+(()=>{const box=document.getElementById('chart');if(!box)return;
+const q=new URLSearchParams(location.search),K=q.get('k'),M=box.dataset.mode;let sym=box.dataset.sym,D=null,hover=null;
+const NS='http://www.w3.org/2000/svg',el=(n,a,t)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e};
+const hm=t=>new Date(t).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'});
+const tip=document.getElementById('tip'),msg=document.getElementById('cmsg');
+async function load(){try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=${M}&sym=${sym}`);D=await r.json()}catch(e){D={error:'연결 실패'}}draw()}
+function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
+ if(b.length<2){msg.textContent=(D&&D.error)?'차트를 불러오지 못했습니다: '+D.error:'표시할 시세가 아직 없습니다';tip.style.display='none';return}
+ msg.textContent=sym+' 1분봉 · 최근 '+b.length+'분 · 10초마다 갱신'+(D.last?' · 현재 $'+D.last.toFixed(2):'');
+ const W=box.clientWidth,H=230,pl=6,pr=50,pt=14,pb=22,tr=D.trades||[];
+ let lo=Math.min(...b.map(x=>x[1]),...tr.map(x=>x[2])),hi=Math.max(...b.map(x=>x[1]),...tr.map(x=>x[2]));const pad=(hi-lo)*.08||.05;lo-=pad;hi+=pad;
+ const t0=b[0][0],t1=b[b.length-1][0],X=t=>pl+(t-t0)/(t1-t0||1)*(W-pl-pr),Y=v=>pt+(hi-v)/(hi-lo)*(H-pt-pb);
+ const s=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':sym+' 가격 추이와 매매 지점'});
+ for(let i=0;i<=3;i++){const v=lo+(hi-lo)*i/3,y=Y(v);s.append(el('line',{x1:pl,x2:W-pr,y1:y,y2:y,stroke:'var(--line)','stroke-width':1}),el('text',{x:W-pr+6,y:y+4,'font-size':11,fill:'var(--mut)'},'$'+v.toFixed(2)))}
+ for(let i=0;i<=2;i++){const t=t0+(t1-t0)*i/2;s.append(el('text',{x:X(t),y:H-6,'font-size':11,fill:'var(--mut)','text-anchor':i==0?'start':i==2?'end':'middle'},hm(t)))}
+ s.append(el('path',{d:b.map((x,i)=>(i?'L':'M')+X(x[0]).toFixed(1)+' '+Y(x[1]).toFixed(1)).join(''),fill:'none',stroke:'var(--fg)','stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round',opacity:.8}));
+ const L=b[b.length-1];s.append(el('circle',{cx:X(L[0]),cy:Y(L[1]),r:4,fill:'var(--fg)',stroke:'var(--card)','stroke-width':2}));
+ for(const x of tr){if(x[0]<t0||x[0]>t1+6e4)continue;const cx=X(Math.min(x[0],t1)),cy=Y(x[2]),buy=x[1]=='buy',d=buy?`M${cx} ${cy-8}L${cx+7} ${cy+5}L${cx-7} ${cy+5}Z`:`M${cx} ${cy+8}L${cx+7} ${cy-5}L${cx-7} ${cy-5}Z`;
+  s.append(el('path',{d,fill:buy?'var(--up)':'var(--dn)',stroke:'var(--card)','stroke-width':2,'stroke-linejoin':'round'}))}
+ if(hover!=null){let i=0,best=1e18;b.forEach((x,k)=>{const dd=Math.abs(X(x[0])-hover);if(dd<best){best=dd;i=k}});const p=b[i],cx=X(p[0]);
+  s.append(el('line',{x1:cx,x2:cx,y1:pt,y2:H-pb,stroke:'var(--mut)','stroke-width':1,'stroke-dasharray':'3 3'}),el('circle',{cx,cy:Y(p[1]),r:4,fill:'var(--card)',stroke:'var(--fg)','stroke-width':2}));
+  const near=tr.filter(x=>Math.abs(x[0]-p[0])<6e4).map(x=>(x[1]=='buy'?'▲ 매수 ':'▼ 매도 ')+x[3]+'주 @ $'+x[2].toFixed(2)).join('<br>');
+  tip.innerHTML='<b>'+hm(p[0])+'</b> · $'+p[1].toFixed(2)+(near?'<br>'+near:'');tip.style.display='block';tip.style.left=Math.min(Math.max(cx-70,0),W-150)+'px'}else tip.style.display='none';
+ box.append(s)}
+const mv=e=>{const r=box.getBoundingClientRect();hover=(e.touches?e.touches[0].clientX:e.clientX)-r.left;draw()};
+box.addEventListener('pointermove',mv);box.addEventListener('pointerdown',mv);box.addEventListener('pointerleave',()=>{hover=null;draw()});
+document.querySelectorAll('[data-sym]').forEach(a=>a.tagName=='BUTTON'&&a.addEventListener('click',()=>{sym=a.dataset.sym;document.querySelectorAll('button[data-sym]').forEach(x=>x.classList.toggle('on',x==a));hover=null;load()}));
+addEventListener('resize',draw);load();setInterval(load,10000)})();
+"""
+
+_clients: dict = {}
+_bar_cache: dict = {}
+
+
+def chart_data(cfg, mode: str, sym: str) -> dict:
+    """차트용 1분봉(15초 캐시)과 그 종목의 체결 지점."""
+    import time as _time
+
+    from .brokers.kis import KISClient, KISMarket
+    if sym not in cfg.symbols:
+        return {"error": "알 수 없는 종목"}
+    market_hours.ENABLED = cfg.sessions
+    c = cfg.kis_real if cfg.kis_real.ok else cfg.kis_demo
+    if not c.ok:
+        return {"error": "KIS 키 없음"}
+    hit = _bar_cache.get(sym)
+    if not hit or _time.time() - hit[0] > 15:
+        try:
+            key = (c.env, c.app_key[-6:])
+            if key not in _clients:
+                _clients[key] = KISMarket(KISClient(c.app_key, c.app_secret, c.env, cfg.data_dir))
+            bars = _clients[key].bars(sym, 120)
+            hit = _bar_cache[sym] = (_time.time(), [[int(b.ts.timestamp() * 1000), b.close] for b in bars])
+        except Exception as e:               # 차트는 부가 기능: 실패해도 페이지는 유지
+            return {"error": f"{type(e).__name__}: {e}"[:200]}
+    _, events, live = _read(cfg, mode)
+    trades = []
+    for x in events:
+        if x.get("kind") in ("buy", "sell") and x.get("symbol") == sym:
+            try:
+                trades.append([int(datetime.fromisoformat(x["ts"]).timestamp() * 1000), x["kind"],
+                               float(x.get("price", 0)), x.get("qty")])
+            except (ValueError, KeyError):
+                continue
+    bars = hit[1]
+    return {"bars": bars, "trades": trades[-60:], "last": bars[-1][1] if bars else None}
 
 
 def _read(cfg, mode):
@@ -130,7 +205,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         dot, label = "", f"장 닫힘 · {_next_open(cfg, now)} 개장"
 
     out = [f"<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-           f"<meta http-equiv=refresh content=30><meta name=referrer content=no-referrer><title>autostock</title>"
+           f"<meta http-equiv=refresh content=120><meta name=referrer content=no-referrer><title>autostock</title>"
            f"<style>{CSS}</style><main><header><h1>{e(cfg.bull)} / {e(cfg.bear)} 자동매매</h1>"
            f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>"]
     for m, name in MODES.items():
@@ -164,6 +239,14 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"<div><div class=k>승 / 패</div><div class=v>{s['wins']} / {s['losses']}</div></div>"
                f"<div><div class=k>운용자금</div><div class=v>{cfg.capital_krw:,.0f}</div></div></div>"
                + (f"<div class=note>종료 사유: {e(s['halted'])}</div>" if s["halted"] else "") + "</section>")
+
+    # ── 가격 차트
+    held = o["symbol"] if o else cfg.bull
+    out.append("<h2>가격 차트</h2><section class=card><div class=seg>"
+               + "".join(f"<button data-sym='{e(s_)}'{' class=on' if s_ == held else ''}>{e(s_)}</button>" for s_ in cfg.symbols)
+               + "<span class=lg><i class=b></i>매수 <i class=s></i>매도</span></div>"
+               f"<div class=chartwrap><div id=chart data-mode='{e(mode)}' data-sym='{e(held)}'></div><div id=tip></div></div>"
+               "<div id=cmsg class=note>불러오는 중…</div></section>")
 
     # ── 보유 포지션
     out.append("<h2>보유 포지션</h2>")
@@ -243,10 +326,11 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     if not state and not events:
         out.append("<div class='card note' style='margin-top:14px'>아직 기록이 없습니다. 이 모드로 장이 열린 적이 없습니다.</div>")
     model = (live or {}).get("model") or cfg.model
-    out.append(f"<footer>{now:%m-%d %H:%M:%S} 기준 · 30초마다 자동 새로고침 · ● 실행 중인 모드<br>"
-               f"환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)"
+    out.append(f"<footer>{now:%m-%d %H:%M:%S} 기준 · 2분마다 자동 새로고침 · ● 실행 중인 모드<br>"
+               f"차트는 10초마다 갱신 · 환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)"
                f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}"
-               f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>")
+               f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>"
+               f"<script>{CHART_JS}</script>")
     return "".join(out)
 
 
@@ -255,7 +339,7 @@ def make_handler(token: str):
         def do_GET(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
-            if u.path != "/" or not hmac.compare_digest(q.get("k", [""])[0], token):
+            if u.path not in ("/", "/data") or not hmac.compare_digest(q.get("k", [""])[0], token):
                 self.send_error(404)
                 return
             load_dotenv(override=True)   # 실행 중에 .env 가 바뀌어도 최신 설정으로 보여준다
@@ -263,9 +347,14 @@ def make_handler(token: str):
             mode = q.get("mode", [cfg.mode])[0]
             if mode not in MODES:
                 mode = cfg.mode
-            body = render(cfg, mode, token).encode()
+            if u.path == "/data":
+                body = json.dumps(chart_data(cfg, mode, q.get("sym", [cfg.bull])[0])).encode()
+                ctype = "application/json"
+            else:
+                body = render(cfg, mode, token).encode()
+                ctype = "text/html; charset=utf-8"
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
