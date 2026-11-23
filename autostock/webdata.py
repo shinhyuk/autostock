@@ -99,8 +99,45 @@ def market(cfg):
     return KISMarket(_client(cfg, c)) if c.ok else None
 
 
+def _fetch_account(cfg, mode: str) -> dict:
+    """증권사 잔고 조회 (느릴 수 있으므로 백그라운드에서만 부른다)."""
+    from .brokers.kis import KISBroker
+    creds = cfg.kis_demo if mode == "kis-demo" else cfg.kis_real
+    if not (creds.ok and len(creds.account_no) == 8):
+        return {"source": "증권사 잔고", "holdings": [], "error": "키 또는 계좌번호 없음", "at": time.time()}
+    try:
+        if not _kis_lock.acquire(timeout=30):
+            raise TimeoutError("다른 조회가 끝나지 않음")
+        try:
+            br = KISBroker(_client(cfg, creds), creds.account_no, creds.account_product)
+            holds = br.holdings()
+            try:
+                cash = br.buying_power(cfg.bull, 1.0)
+            except Exception as e:                # 주문가능금액은 부가 정보
+                log.info("주문가능금액 조회 실패: %s", e)
+                cash = None
+        finally:
+            _kis_lock.release()
+        return {"source": "증권사 잔고 (한국투자증권)", "holdings": holds, "cash": cash, "at": time.time()}
+    except Exception as e:
+        return {"source": "증권사 잔고", "holdings": [], "error": f"{type(e).__name__}: {e}"[:200], "at": time.time()}
+
+
+def account_refresher(stop: threading.Event, every: float = 30) -> None:
+    """모의투자·실계좌 잔고를 주기적으로 미리 조회해 둔다. 페이지는 이 값만 읽으므로 멈추지 않는다."""
+    while not stop.is_set():
+        try:
+            base = config.load()
+            for m in base.modes:
+                if m != "paper":
+                    _acct_cache[m] = _fetch_account(config.load(m), m)
+        except Exception as e:
+            log.warning("잔고 갱신 실패: %s", e)
+        stop.wait(every)
+
+
 def account(cfg, mode: str, state: dict | None, live: dict | None) -> dict:
-    """보유 종목. 가상매매는 봇 장부, 모의투자·실계좌는 증권사 잔고(20초 캐시)."""
+    """보유 종목. 가상매매는 봇 장부, 모의투자·실계좌는 백그라운드에서 받아 둔 증권사 잔고."""
     o = (state or {}).get("open")
     if mode == "paper":
         holds = []
@@ -110,27 +147,9 @@ def account(cfg, mode: str, state: dict | None, live: dict | None) -> dict:
                           "value": last * o["qty"] if last else None,
                           "pnl": None, "pnl_pct": None, "bot": True})
         return {"source": "봇 장부 (가상 체결)", "holdings": holds, "cash": None}
-    creds = cfg.kis_demo if mode == "kis-demo" else cfg.kis_real
-    if not (creds.ok and len(creds.account_no) == 8):
-        return {"source": "증권사 잔고", "holdings": [], "error": "키 또는 계좌번호 없음"}
-    hit = _acct_cache.get(mode)
-    if hit and time.time() - hit[0] < 20:
-        res = hit[1]
-    else:
-        from .brokers.kis import KISBroker
-        try:
-            with _kis_lock:
-                br = KISBroker(_client(cfg, creds), creds.account_no, creds.account_product)
-                holds = br.holdings()
-                try:
-                    cash = br.buying_power(cfg.bull, 1.0)
-                except Exception as e:            # 주문가능금액은 부가 정보
-                    log.info("주문가능금액 조회 실패: %s", e)
-                    cash = None
-            res = {"source": "증권사 잔고 (한국투자증권)", "holdings": holds, "cash": cash}
-        except Exception as e:
-            res = {"source": "증권사 잔고", "holdings": [], "error": f"{type(e).__name__}: {e}"[:200]}
-        _acct_cache[mode] = (time.time(), res)
+    res = _acct_cache.get(mode)
+    if res is None:
+        return {"source": "증권사 잔고", "holdings": [], "loading": True}
     bot_sym = o["symbol"] if o else None
     res = {**res, "holdings": [{**h, "bot": h["symbol"] == bot_sym} for h in res["holdings"]]}
     if o and not any(h["bot"] for h in res["holdings"]) and not res.get("error"):
@@ -185,10 +204,14 @@ def collector(store: BarStore, stop: threading.Event) -> None:
             market_hours.ENABLED = tuple(sorted({x for c in cfgs for x in c.sessions}))
             syms = sorted({s for c in cfgs for s in c.symbols})
             mk = market(cfg)
-            if mk and market_hours.is_open(market_hours.now_et()) or not any(store.data.get(s) for s in syms):
+            if mk and (market_hours.is_open(market_hours.now_et()) or not any(store.data.get(s) for s in syms)):
                 for s in syms:
-                    with _kis_lock:
-                        bars = mk.bars(s, 120) if mk else []
+                    if not _kis_lock.acquire(timeout=20):
+                        continue
+                    try:
+                        bars = mk.bars(s, 120)
+                    finally:
+                        _kis_lock.release()
                     store.merge(s, bars)
             if time.time() - last_save > 300:
                 store.save()
@@ -205,12 +228,13 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
     market_hours.ENABLED = tuple(sorted(set(config.load().sessions) | set(cfg.sessions)))
     now = market_hours.now_et()
     mk = market(cfg)
-    if mk:                                            # 페이지를 보는 동안은 최신 120개로 바로 채운다
+    if mk and _kis_lock.acquire(timeout=2):           # 다른 조회 중이면 기다리지 않고 모아 둔 봉으로 그린다
         try:
-            with _kis_lock:
-                store.merge(sym, mk.bars(sym, 120))
+            store.merge(sym, mk.bars(sym, 120))
         except Exception as e:
             log.info("차트 1분봉 조회 실패: %s", e)
+        finally:
+            _kis_lock.release()
     sess = market_hours.last_session(now)
     sess_open = sess.open.timestamp() if sess else now.timestamp() - 6.5 * 3600
     since = sess_open if span <= 0 else now.timestamp() - span * 60

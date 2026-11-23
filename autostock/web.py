@@ -205,7 +205,9 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     acct = webdata.account(cfg, mode, state, live)
     trips, _open_lots = webdata.round_trips(events, cfg.fee_pct)
     out.append(f"<h2>보유 종목 <span class=mut style='font-weight:500'>· {e(acct.get('source', ''))}</span></h2>")
-    if acct.get("error"):
+    if acct.get("loading"):
+        out.append("<section class='card note'>증권사 잔고를 불러오는 중입니다 (최대 30초). 잠시 뒤 새로고침하세요.</section>")
+    elif acct.get("error"):
         out.append(f"<section class='card note'>잔고 조회 실패: {e(acct['error'])}</section>")
     elif not acct["holdings"]:
         out.append("<section class=card><span class=mut>보유 종목 없음 (현금 대기)</span></section>")
@@ -237,6 +239,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
             rows.insert(0, ("종목명", h["name"]))
         out.append(f"<section class='card hold'><div class=pos><div class=sym>{e(h['symbol'])} {tag}</div>{head}</div>"
                    "<dl class=kv>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in rows) + "</dl></section>")
+    if acct.get("at"):
+        out.append(f"<div class='note pad'>잔고 기준 {datetime.fromtimestamp(acct['at'], KST):%H:%M:%S} (30초마다 갱신)</div>")
     if acct.get("cash") is not None:
         out.append(f"<div class='note pad'>주문 가능 금액 {usd(acct['cash'])} · {won(acct['cash'], False)}</div>")
     if acct.get("mismatch"):
@@ -444,6 +448,7 @@ def main() -> int:
     import threading
     STORE = webdata.BarStore(os.path.join(config.load().data_dir, "bars_cache.json"))
     threading.Thread(target=webdata.collector, args=(STORE, threading.Event()), daemon=True).start()
+    threading.Thread(target=webdata.account_refresher, args=(threading.Event(),), daemon=True).start()
     print(f"결과 페이지: 포트 {port}")
     ThreadingHTTPServer(("0.0.0.0", port), make_handler(token)).serve_forever()
     return 0

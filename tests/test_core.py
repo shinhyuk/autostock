@@ -737,6 +737,11 @@ def test_kis_holdings_merge_and_page_renders(kis, tmp_path):
     assert [x[2]["OVRS_EXCG_CD"] for x in c2.http.calls if x[0] == "inquire-balance"] == ["NASD", "NYSE", "AMEX"]
     cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), modes=("paper",))
     webdata._acct_cache.clear()
+    assert webdata.account(cfg, "live", None, None).get("loading")             # 아직 조회 전이면 기다리지 않고 바로 반환
+    webdata._acct_cache["live"] = {"source": "x", "holdings": [{"symbol": "INTC", "qty": 2, "avg": 50.0}], "at": 0}
+    acct = webdata.account(cfg, "live", {"open": {"symbol": "INTC", "qty": 2}}, None)
+    assert acct["holdings"][0]["bot"] and "mismatch" not in acct
+    assert "불러오는 중" in web.render(dataclasses.replace(cfg, modes=("live",)), "kis-demo", "t")
     page = web.render(cfg, "paper", "t")
     assert "보유 종목 없음" in page and 'id=chart' in page and "</main>" in page
 
