@@ -69,6 +69,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
 dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:12px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
 dl.kv dt{color:var(--mut)}dl.kv dd{margin:0;text-align:right}
+.actlog{max-height:420px;overflow-y:auto}.actlog .row{padding:8px 14px}.actlog .a{font-size:13.5px;overflow-wrap:anywhere}
 .trip .h{flex-wrap:wrap}.trip .h>span:first-child{white-space:nowrap}
 .spans{display:flex;gap:4px;margin:0 0 8px}.spans button{flex:1;font:inherit;font-size:12px;padding:4px 0;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer}
 .spans button.on{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
@@ -200,6 +201,22 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                       if cfg.ext_strategy == "ai" and len(cfg.sessions) > 1 else "")
                    + (f"<br>지금: <b>{market_hours.LABEL.get((live or {}).get('session') or '', '장 닫힘')}</b>"
                       if live else "") + "</div></section>")
+
+    # ── 활동 로그
+    acts = webdata.activity(cfg, mode, 40)
+    if acts:
+        last_age = None
+        try:
+            last_age = (now - datetime.fromisoformat(acts[-1]["ts"])).total_seconds()
+        except (ValueError, KeyError):
+            pass
+        stale = f" · <span class=warnt>마지막 기록 {last_age / 60:.0f}분 전</span>" if last_age and last_age > 180 else ""
+        out.append(f"<h2>활동 로그 (1분마다, 한국시간){stale}</h2><section class='card feed actlog'>")
+        for x in acts[::-1]:
+            meta = " · ".join(v for v in (x.get("session"), x.get("strategy"), x.get("pnl")) if v)
+            out.append(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div><div class=a>{e(x.get('msg', ''))}</div>"
+                       + (f"<div class=r>{e(meta)}</div>" if meta else "") + "</div></div>")
+        out.append("</section>")
 
     # ── 보유 종목
     acct = webdata.account(cfg, mode, state, live)

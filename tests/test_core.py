@@ -788,3 +788,27 @@ def test_orb_long_only_skips_downside(orb_rig):
     m.now += timedelta(minutes=1)
     e.tick()
     assert e.st.open is None
+
+
+def test_activity_log_once_per_minute(orb_rig, rig):
+    import json
+    from autostock import web, webdata
+    e, m, _ = orb_rig()
+    e.tick()
+    m.now += timedelta(seconds=20)
+    e.tick()                                                         # 같은 분: 추가 기록 없음
+    m.after, m.px["SOXL"] = [30.8], 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()
+    acts = [json.loads(x) for x in open(e.act_path)]
+    assert len(acts) == 2 and "돌파 대기" in acts[0]["msg"] and "범위 $29.50~$30.50" in acts[0]["msg"]
+    assert acts[1]["msg"].startswith("보유 SOXL") and acts[1]["strategy"] == "개장 범위 돌파"
+    assert [a["msg"] for a in webdata.activity(e.cfg, "paper", 1)] == [acts[1]["msg"]]
+    assert "활동 로그" in web.render(e.cfg, "paper", "t")
+
+    e2, m2, _ = rig(data_dir=e.cfg.data_dir + "/ai")                 # AI 전략: 다음 판단 시각과 직전 판단
+    e2.tick()
+    m2.now += timedelta(minutes=1)
+    e2.tick()
+    last = json.loads(open(e2.act_path).read().splitlines()[-1])
+    assert "현금 대기" in last["msg"] and "다음 판단" in last["msg"] and "직전 판단" in last["msg"]

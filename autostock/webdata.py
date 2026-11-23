@@ -36,6 +36,26 @@ def read(cfg, mode: str):
     return load(f"state_{mode}.json"), events, load(f"live_{mode}.json")
 
 
+def activity(cfg, mode: str, n: int = 60) -> list[dict]:
+    """활동 기록 끝부분만 읽는다 (파일이 커도 빠르게)."""
+    path = os.path.join(cfg.data_dir, f"activity_{mode}.jsonl")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 60_000))
+            raw = f.read().decode("utf-8", "ignore").splitlines()
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in raw[-n:]:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
 def _mins(a: str, b: str) -> float | None:
     try:
         return (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 60

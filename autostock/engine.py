@@ -54,6 +54,9 @@ class Engine:
         self.state_path = os.path.join(cfg.data_dir, f"state_{cfg.mode}.json")
         self.log_path = os.path.join(cfg.data_dir, f"journal_{cfg.mode}.jsonl")
         self.live_path = os.path.join(cfg.data_dir, f"live_{cfg.mode}.json")
+        self.act_path = os.path.join(cfg.data_dir, f"activity_{cfg.mode}.jsonl")
+        self._act_min: datetime | None = None
+        self._closed_note: datetime | None = None
         self._last_price: float | None = None
         self.st = DayState.load(self.state_path)
         self._refresh_halt()
@@ -463,8 +466,67 @@ class Engine:
         self._journal("decision", **{**d.model_dump(), "action": "AGREE" if agree else "DISAGREE", "review": True})
 
     # ── 루프 ────────────────────────────────────────────────
+    # ── 활동 기록: 1분마다 무엇을 보고 있는지 한 줄 ─────────
+    def _activity(self, now: datetime, msg: str, **data) -> None:
+        try:
+            os.makedirs(self.cfg.data_dir, exist_ok=True)
+            with open(self.act_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": now.isoformat(), "msg": msg, **data}, ensure_ascii=False) + "\n")
+            if os.path.getsize(self.act_path) > 3_000_000:          # 약 2주치 넘으면 앞쪽 절반을 버린다
+                with open(self.act_path, encoding="utf-8") as f:
+                    lines = f.readlines()
+                with open(self.act_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines[len(lines) // 2:])
+        except OSError:
+            pass
+
+    def _note_minute(self, now: datetime) -> None:
+        m = now.replace(second=0, microsecond=0)
+        if self._act_min == m:
+            return
+        self._act_min = m
+        c, st = self.cfg, self.st
+        sess = market_hours.current(now)
+        label = market_hours.LABEL.get(sess.name, "") if sess else ""
+        strat = self._strategy(now)
+        sname = "개장 범위 돌파" if strat == "orb" else "Claude 판단"
+        pnl = f"세션 실현 {self._krw(st.realized_usd)}"
+        if t := st.open:
+            last = self._last_price or t.entry_price
+            chg = (last / t.entry_price - 1) * 100
+            msg = (f"보유 {t.symbol} {t.qty}주 @ ${t.entry_price:.2f} → ${last:.2f} ({chg:+.2f}%, 평가 "
+                   f"{self._krw(self.risk.unrealized(t, last))}) · 손절 ${t.entry_price * (1 - t.stop_pct / 100):.2f}"
+                   f" / 익절 ${t.entry_price * (1 + t.take_pct / 100):.2f}")
+        else:
+            try:
+                px = f"{c.bull} ${self.market.quote(c.bull).last:.2f}"
+            except Exception:
+                px = f"{c.bull} 시세 없음"
+            if st.halted:
+                msg = f"세션 종료: {st.halted} · {px}"
+            elif strat == "orb":
+                o = self.orb.get(sess.key) if sess else None
+                rng = f" · 범위 ${o['ll']:.2f}~${o['hh']:.2f}" if o else ""
+                msg = f"{self.orb_status or '대기'}{rng} · {px}"
+            else:
+                last = self.recent_decisions[-1] if self.recent_decisions else None
+                nxt = ""
+                if self.last_decision_at:
+                    left = c.decision_interval_sec - (now - self.last_decision_at).total_seconds()
+                    nxt = f" · 다음 판단 {max(left, 0):.0f}초 후"
+                prev = (f" · 직전 판단 {last['time']} {last['action']} {last['symbol']}"
+                        + (f" (거부: {last['rejected']})" if last.get("rejected") else "")) if last else ""
+                msg = f"현금 대기 · {px}{nxt}{prev}"
+        self._activity(now, msg, session=label, strategy=sname, pnl=pnl)
+
     def tick(self) -> None:
         now = self.clock()
+        try:
+            self._tick(now)
+        finally:
+            self._note_minute(now)
+
+    def _tick(self, now: datetime) -> None:
         if self.st.roll(market_hours.session_key(now)):
             log.info("새 거래일 %s 시작 — 목표 %s / 손실한도 %s", self.st.date,
                      self._krw(self.cfg.target_usd), self._krw(-self.cfg.max_loss_usd))
@@ -532,6 +594,11 @@ class Engine:
                     log.info("장 시간이 아님 (ET %s). 다음 개장: 한국시간 %s", now.strftime("%a %H:%M"),
                              nxt.astimezone(market_hours.KST).strftime("%m-%d %H:%M") if nxt else "?")
                     was_open = False
+                if self._closed_note is None or (now - self._closed_note).total_seconds() >= 600:
+                    self._closed_note = now
+                    nxt = market_hours.next_open(now)
+                    self._activity(now, "장 닫힘 · 다음 개장 " + (nxt.astimezone(market_hours.KST).strftime("%m-%d %H:%M")
+                                                            if nxt else "?"))
                 self._beat(now, "closed")
                 self.sleep(30)
                 continue
@@ -545,6 +612,8 @@ class Engine:
             except Exception:                        # 시세/주문 오류로 루프가 죽으면 포지션이 방치된다
                 errors += 1
                 log.exception("틱 처리 오류 (%d회 연속)", errors)
+                import traceback as _tb
+                self._activity(now, "오류: " + _tb.format_exc(limit=1).strip().splitlines()[-1][:200])
                 if errors in (1, 30) or errors % 180 == 0:      # 결과 페이지에서 원인을 볼 수 있게 가끔 기록
                     import traceback
                     self._journal("error", detail=traceback.format_exc(limit=1).strip().splitlines()[-1][:300])
