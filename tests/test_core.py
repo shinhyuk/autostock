@@ -422,6 +422,7 @@ def test_sessions_regular_and_day(monkeypatch):
 def test_kis_daytime_uses_separate_order_api(kis, monkeypatch):
     from autostock.brokers import kis as k
     monkeypatch.setattr(k, "_is_day", lambda: True)
+    monkeypatch.setattr(k, "_extended", lambda: True)
     c, b = kis("real")
     f = b.buy("SOXL", 1, 30.0)
     assert f.qty == 1
