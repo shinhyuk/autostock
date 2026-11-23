@@ -363,12 +363,16 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
         x = extbox.X_CHOICES[0]
     now = market_hours.now_et()
     mk = market(cfg)
+    book = {}
     if mk and _kis_lock.acquire(timeout=2):
         try:
             for s in (bull, bear):
                 store.merge(s, mk.bars(s, 120))
+            if extbox.session(now):
+                for s in (bull, bear):
+                    book[s] = mk.book(s)                 # 지금 호가 차이 = 직접 사고팔 때의 실제 비용
         except Exception as e:
-            log.info("시간외 1분봉 조회 실패: %s", e)
+            log.info("시간외 1분봉·호가 조회 실패: %s", e)
         finally:
             _kis_lock.release()
     sess = extbox.session(now)
@@ -387,6 +391,7 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
     bars = store.get(sym, since)
     back = t - (extbox.BOX_MIN + 5) * 60
     adv = extbox.advice(store.get(bull, back), store.get(bear, back), now, ext_hist_path(cfg), x, cfg.fee_pct)
+    adv["book"] = {k: v for k, v in book.items() if v}
     lines, rng, bands = [], None, []
     r4 = lambda v: round(v, 4)   # noqa: E731
     if sym == bull and adv.get("hi"):

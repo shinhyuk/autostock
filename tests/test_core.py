@@ -1140,3 +1140,23 @@ def test_ext_tab_falls_back_to_yahoo_bars(tmp_path, monkeypatch):
     assert calls == ["SOXL", "SOXS"] and d["advice"]["zone"] == "mid" and "야후" in d["note"]
     webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)
     assert calls == ["SOXL", "SOXS"]                                                       # 이미 채워졌으면 다시 안 부름
+
+
+def test_ext_tab_shows_spread_and_research(tmp_path, monkeypatch):
+    from autostock import market_hours, web, webdata
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path))
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    now = datetime(2026, 11, 23, 16, 50, 20, tzinfo=ET)
+    t0 = now.replace(second=0) - timedelta(minutes=65)
+    for sym, px in (("SOXL", 100), ("SOXS", 20)):
+        store.merge(sym, [Bar(t0 + timedelta(minutes=i), px, px * 1.01, px * .99, px, 1) for i in range(66)])
+
+    class MK:
+        def bars(self, s, n): return []
+        def book(self, s): return (99.9, 100.1) if s == "SOXL" else (19.9, 20.1)
+    monkeypatch.setattr(market_hours, "now_et", lambda: now)
+    monkeypatch.setattr(webdata, "market", lambda c: MK())
+    adv = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)["advice"]
+    html_ = web.ext_card(adv, cfg)
+    assert "매수호가 $99.90 / 매도호가 $100.10 (차이 0.20%)" in html_ and "차이 1.01%" in html_ and "warnt" in html_
+    assert "꾸준히 이익 난 방법은 없었습니다" in web.render_ext(cfg, "t", now)

@@ -542,6 +542,15 @@ def _ext_box_part(adv: dict, cfg, head: str) -> str:
     elif z in ("above", "below"):
         out.append(f"<div class=note>{e(bull)} 가 박스 {'위' if z == 'above' else '아래'}로 나가 박스 매매를 쉽니다. "
                    "직전 60분으로 박스를 계속 다시 그리므로, 가격이 자리 잡으면 새 박스가 생깁니다.</div>")
+    bk = adv.get("book") or {}
+    if bk:
+        parts = []
+        for sym_, (bid, ask) in bk.items():
+            sp = (ask / bid - 1) * 100
+            parts.append(f"{e(sym_)} 매수호가 {usd(bid)} / 매도호가 {usd(ask)} (차이 {sp:.2f}%)")
+        worst = max((a / b - 1) * 100 for b, a in bk.values())
+        out.append(f"<div class='note{' warnt' if worst > 0.3 else ''}'>지금 호가: {' · '.join(parts)}. "
+                   f"사고팔면 수수료 {2 * cfg.fee_pct:.1f}% + 호가 차이만큼 듭니다 — 시장가 말고 위 매수가로 지정가 주문하세요.</div>")
     if adv.get("rec_thin"):
         out.append(f"<div class='note warnt'>박스 폭이 좁아 목표까지 {adv['rec_gain']:+.1f}% 뿐이라, 수수료·호가 차이(왕복 약 0.7%)를 빼면 남는 게 거의 없습니다.</div>")
     bb = adv.get("bbox") or {}
@@ -567,6 +576,24 @@ window.chartQ='&x='+x;
 window.onChart=D=>{if(!D||D.advice_html==null)return;const c=document.getElementById('adv'),o=c.querySelector('#ref');const open=o&&o.open;c.innerHTML=D.advice_html;const n=c.querySelector('#ref');if(n&&open)n.open=true};
 document.addEventListener('click',ev=>{const b=ev.target.closest('button[data-x]');if(!b)return;x=b.dataset.x;window.chartQ='&x='+x;try{localStorage.setItem('extx',x)}catch(e){}if(window.chartReload)window.chartReload()})})();
 """
+
+
+# 시간외 방법 비교 (research/README.md, 2026-11-24 기준). 수수료 편도 0.25% + 호가 차이 포함한 1회 평균.
+EXT_RESEARCH = (
+    "<h2>시간외 방법 비교 (연구 결과)</h2><section class=card>"
+    "<div class=big2 style='font-size:19px'>결론: 시간외에서 꾸준히 이익 난 방법은 없었습니다</div>"
+    "<div class=note>최근 60일(5분봉)에서 고른 방법을 지난 2년(1시간봉, 약 490일)에 다시 돌려 반기마다 확인했습니다. "
+    "60일에서 좋아 보인 것들은 모두 2026년 하반기에만 이익이었고, 그 전 4개 반기는 손해였습니다.</div>"
+    "<table><tr><th>방법</th><th class=r>최근 60일</th><th class=r>2년</th></tr>"
+    "<tr><td>박스 아래 SOXL · 위 SOXS (이 탭의 권장)</td><td class=r>-0.5~-0.8%</td><td class=r>-</td></tr>"
+    "<tr><td>박스 돌파 따라가기</td><td class=r>-0.6% 이하</td><td class=r>-</td></tr>"
+    "<tr><td>프리 20:00(한국) 갭 따라가기 → 23:25</td><td class=r>+0.2~0.3%</td><td class=r>-0.0~-0.2%</td></tr>"
+    "<tr><td>프리 초반 흐름 따라가기 → 23:30</td><td class=r>+0.4%</td><td class=r>-0.2~-0.5%</td></tr>"
+    "<tr><td>정규장 4% 넘게 간 날 애프터에 따라 사서 다음 날 아침 청산</td><td class=r>+0.5~1.7%</td><td class=r>-0.3~-0.5%</td></tr>"
+    "<tr><td>프리 갭 보고 정규장 개장에 따라가기 / 되돌림</td><td class=r>-</td><td class=r>-0.1~-1.0%</td></tr>"
+    "</table><div class=note>숫자는 1회 평균 손익(수수료·호가 차이 뺀 값). 시간외 움직임은 수수료(왕복 0.5%)와 호가 차이를 넘을 만큼 한쪽으로 꾸준하지 않습니다.<br>"
+    "<b>권장</b>: 시간외에 직접 하신다면 위 박스 권장가로 <b>지정가</b> 주문, <b>소액</b>으로만. "
+    "큰 금액은 근거가 있는 정규장(한국시간 23:30~) 개장 범위 돌파·박스권 자동매매에 두세요.</div></section>")
 
 
 def render_ext(cfg, token: str, now: datetime | None = None) -> str:
@@ -598,6 +625,7 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
               "<span><i class='lg-line tkp'></i>매도 목표</span><span><i class='lg-line stp'></i>손절</span></div>"
               f"<div class=chartwrap><div id=chart data-mode='ext' data-sym='{e(cfg.bull)}'></div><div id=tip></div></div>"
               "<div id=cmsg class=note>불러오는 중…</div></section>"
+              + EXT_RESEARCH +
               f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
               f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
