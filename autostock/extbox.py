@@ -1,6 +1,6 @@
 """시간외(프리·애프터) 직접 매매 도우미. 주문은 하지 않는다.
 
-- 박스: 직전 60분의 고가·저가.
+- 박스: 위·아래 경계에 각각 2번 이상 닿은 45~180분 구간 (꼬리 한 번은 무시). 종가가 2봉 연속 밖으로 나갈 때까지 고정.
 - 위치: 박스 위로 돌파 / 상단 구간(위 20%) / 가운데 / 하단 구간(아래 20%) / 아래로 이탈.
 - 박스 매매: SOXL 이 하단 구간이면 SOXL, 상단 구간이면 SOXS 매수. 목표는 반대쪽 80% 지점, 손절은 경계 밖 10%.
 - 확률: 과거 약 60일(야후 5분봉, 시간외 포함)에서 같은 시간대에 SOXL 이 같은 위치에 들어왔을 때,
@@ -19,7 +19,6 @@ from zoneinfo import ZoneInfo
 
 log = logging.getLogger("extbox")
 ET = ZoneInfo("America/New_York")
-BOX_MIN = 60
 ZONE = 0.2                           # 박스 위·아래 20% = 매수 구간 (정규장 박스권과 같음)
 BOX_TARGET, BOX_STOP = 0.8, 0.1      # 목표: 반대쪽으로 폭의 80% 지점, 손절: 경계 밖 폭의 10%
 HORIZON_MIN = 120
@@ -71,16 +70,64 @@ def zone(p: float, hi: float, lo: float) -> str:
     return "mid"
 
 
-def live_box(bars: list[list], minutes: int = BOX_MIN):
-    """1분봉 [[ms,o,h,l,c,v]] 에서 마지막 봉(지금 가격) 직전 minutes 분의 (고가, 저가). 자료가 모자라면 None.
-    과거 통계와 같게, 지금 봉은 박스에 넣지 않는다 (넣으면 돌파를 알 수 없다)."""
+BOX_MIN_MIN, BOX_MAX_MIN = 45, 180     # 박스로 볼 구간 길이
+BOX_TOL = 0.2                           # 경계에서 폭의 20% 안이면 '닿음'
+BOX_TOUCHES = 2                         # 위·아래 경계에 각각 이만큼 따로 닿아야 박스
+BOX_WMIN, BOX_WMAX = 0.6, 5.0           # 박스 폭(%) 범위
+BREAK_BARS, BREAK_M = 2, 0.1            # 종가가 경계 밖(폭의 10% 넘게)으로 2봉 연속이면 박스 끝
+
+
+def _groups(flags) -> int:
+    g, prev = 0, False
+    for f in flags:
+        if f and not prev:
+            g += 1
+        prev = f
+    return g
+
+
+def find_boxes(rows: list[list], step: int) -> tuple[list, dict]:
+    """rows [[ts초,o,h,l,c], ...] 시간순. 고정 박스를 찾는다.
+    - 박스: 45~180분 구간에서 위·아래 경계(꼬리 한 번은 무시)에 각각 2번 이상 따로 닿았고, 그동안 종가가 박스 밖으로 나간 적이 없는 가장 긴 구간.
+    - 한 번 정해지면 고정. 종가가 경계 밖으로 폭의 10% 넘게 2봉 연속 나가면 돌파로 보고 끝낸 뒤, 그 뒤 봉들로 새 박스를 찾는다.
+    돌려주는 값: (봉마다 그 봉 '직전'까지로 정해진 박스 dict 또는 None, 마지막 봉까지 반영한 상태)"""
+    res, box, outside, frm, last_break = [], None, 0, 0, None
+    nmin, nmax = max(3, BOX_MIN_MIN // step), BOX_MAX_MIN // step
+    for i, r in enumerate(rows):
+        res.append(box)
+        if i and r[0] - rows[i - 1][0] > 3600:          # 밤사이 같은 큰 공백이면 새로 시작
+            box, outside, frm = None, 0, i
+        if box:
+            w = box["hi"] - box["lo"]
+            out_up, out_dn = r[4] > box["hi"] + BREAK_M * w, r[4] < box["lo"] - BREAK_M * w
+            outside = outside + 1 if (out_up or out_dn) else 0
+            if outside >= BREAK_BARS:
+                last_break = {"dir": "up" if out_up else "down", "ts": r[0], "hi": box["hi"], "lo": box["lo"]}
+                box, outside, frm = None, 0, i - BREAK_BARS + 1
+            continue
+        for n in range(min(nmax, i + 1 - frm), nmin - 1, -1):
+            win = rows[i - n + 1:i + 1]
+            hs, ls = sorted(x[2] for x in win), sorted(x[3] for x in win)
+            hi, lo = hs[-2], ls[1]
+            w = hi - lo
+            if not (BOX_WMIN <= w / ((hi + lo) / 2) * 100 <= BOX_WMAX):
+                continue
+            if any(x[4] > hi + BREAK_M * w or x[4] < lo - BREAK_M * w for x in win):
+                continue
+            if (_groups([x[2] >= hi - BOX_TOL * w for x in win]) >= BOX_TOUCHES and
+                    _groups([x[3] <= lo + BOX_TOL * w for x in win]) >= BOX_TOUCHES):
+                box = {"hi": hi, "lo": lo, "start": win[0][0], "found": r[0]}
+                break
+    return res, {"box": box, "last_break": last_break}
+
+
+def live_box(bars: list[list]):
+    """1분봉 [[ms,o,h,l,c,v]] 에서 지금(마지막 봉) 쓸 박스 dict 와 직전 돌파. 마지막 봉은 박스 판단에 넣지 않는다."""
     if len(bars) < 2:
-        return None
-    cur = bars[-1][0] / 1000
-    win = [b for b in bars[:-1] if cur - minutes * 60 <= b[0] / 1000 < cur]
-    if len(win) < minutes / 3 or win[0][0] / 1000 > cur - minutes * 0.75 * 60:
-        return None
-    return max(b[2] for b in win), min(b[3] for b in win)
+        return None, None
+    rows = [[b[0] / 1000, *b[1:5]] for b in bars]
+    res, st = find_boxes(rows[:-1], 1)
+    return st["box"], st["last_break"]
 
 
 # ── 과거 자료 (야후 5분봉, 시간외 포함)
@@ -137,12 +184,15 @@ def _load(path: str):
         return None, None
     if _cache.get("hist", (None,))[0] != mt:
         with open(path, encoding="utf-8") as f:
-            _cache["hist"] = (mt, json.load(f))
+            rows = [r[:5] for r in json.load(f)]
+        _cache["hist"] = (mt, rows)
+        _cache["boxes"] = find_boxes(rows, 5)[0]
         _cache.pop("stats", None)
+        _cache.pop("box", None)
     return mt, _cache["hist"][1]
 
 
-def samples(rows: list[list], x: float) -> list[dict]:
+def samples(rows: list[list], x: float, boxes: list | None = None) -> list[dict]:
     """과거 5분봉에서 '시간외에 SOXL 이 박스의 새 위치에 들어온 순간'마다 +x%/-x% 중 먼저 닿은 쪽."""
     out, last_zone = [], {}
     n = len(rows)
@@ -154,15 +204,15 @@ def samples(rows: list[list], x: float) -> list[dict]:
             continue
         name, _, close = s
         end = min(close.timestamp(), t + HORIZON_MIN * 60)
-        win = [r for r in rows[max(0, i - BOX_MIN // 5 - 3):i] if t - BOX_MIN * 60 <= r[0] < t]
-        if len(win) < BOX_MIN // 5 * 0.75:
+        bx = boxes[i] if boxes else None
+        if not bx:
             continue
-        hi, lo, p = max(r[2] for r in win), min(r[3] for r in win), rows[i][4]
+        hi, lo, p = bx["hi"], bx["lo"], rows[i][4]
         z = zone(p, hi, lo)
         key = (name, dt.date())
-        if last_zone.get(key) == z:
-            continue                      # 같은 위치에 머무는 동안은 처음 들어온 순간만 센다
-        last_zone[key] = z
+        if last_zone.get(key) == (z, bx["start"]):
+            continue                      # 같은 박스의 같은 위치에 머무는 동안은 처음 들어온 순간만 센다
+        last_zone[key] = (z, bx["start"])
         if t + 15 * 60 > end:
             continue
         res, move = "none", 0.0
@@ -188,7 +238,7 @@ def box_levels(hi: float, lo: float) -> dict:
     return {"buy_max": lo + ZONE * w, "target": lo + BOX_TARGET * w, "stop": lo - BOX_STOP * w}
 
 
-def box_samples(rows: list[list]) -> list[dict]:
+def box_samples(rows: list[list], boxes: list | None = None) -> list[dict]:
     """과거 5분봉: 시간외에 SOXL 이 하단 구간에 새로 들어오면 SOXL 매수, 상단 구간이면 SOXS 매수(SOXL 반대로 어림).
     목표·손절은 SOXL 박스 기준. 같은 봉에 둘 다 닿으면 손절로 본다. 2시간·시간대 끝까지 안 닿으면 그때 가격으로 정리."""
     out, last_zone = [], {}
@@ -201,14 +251,14 @@ def box_samples(rows: list[list]) -> list[dict]:
             continue
         name, _, close = s
         end = min(close.timestamp(), t + HORIZON_MIN * 60)
-        win = [r for r in rows[max(0, i - BOX_MIN // 5 - 3):i] if t - BOX_MIN * 60 <= r[0] < t]
-        if len(win) < BOX_MIN // 5 * 0.75:
+        bx = boxes[i] if boxes else None
+        if not bx:
             continue
-        hi, lo, p = max(r[2] for r in win), min(r[3] for r in win), rows[i][4]
+        hi, lo, p = bx["hi"], bx["lo"], rows[i][4]
         z = zone(p, hi, lo)
         key = (name, dt.date())
-        prev, last_zone[key] = last_zone.get(key), z
-        if z not in ("top", "bottom") or prev == z or t + 15 * 60 > end:
+        prev, last_zone[key] = last_zone.get(key), (z, bx["start"])
+        if z not in ("top", "bottom") or prev == (z, bx["start"]) or t + 15 * 60 > end:
             continue
         w = hi - lo
         long = z == "bottom"
@@ -241,7 +291,7 @@ def box_stats(path: str, fee_pct: float = 0.25) -> dict | None:
     st = _cache.setdefault("box", {})
     if (mt, fee_pct) in st:
         return st[(mt, fee_pct)]
-    sm = box_samples(rows)
+    sm = box_samples(rows, _cache.get("boxes"))
     days = sorted({x["d"] for x in sm})
     mid = days[len(days) // 2] if days else ""
     cost = 2 * fee_pct + 2 * SLIP_PCT
@@ -274,7 +324,7 @@ def stats(path: str, x: float, fee_pct: float = 0.25) -> dict | None:
     st = _cache.setdefault("stats", {})
     if ck in st:
         return st[ck]
-    sm = samples(rows, x)
+    sm = samples(rows, x, _cache.get("boxes"))
     days = sorted({s["d"] for s in sm})
     mid = days[len(days) // 2] if days else ""
     cost = 2 * fee_pct + 2 * SLIP_PCT
@@ -335,15 +385,16 @@ def advice(bull_bars: list[list], bear_bars: list[list], now: datetime, path: st
     out["last"] = last
     out["bear_last"] = bear_last
     out["age_min"] = (now.timestamp() - bull_bars[-1][0] / 1000) / 60
-    bx = live_box(bull_bars)
+    bx, brk = live_box(bull_bars)
+    out["last_break"] = brk
     if not bx:
         return out
-    hi, lo = bx
+    hi, lo = bx["hi"], bx["lo"]
     z = zone(last, hi, lo)
-    out.update(hi=hi, lo=lo, zone=z, width=(hi - lo) / last * 100, bull_lv=box_levels(hi, lo))
-    sx = live_box(bear_bars) if bear_bars else None
+    out.update(hi=hi, lo=lo, box_start=bx["start"], zone=z, width=(hi - lo) / last * 100, bull_lv=box_levels(hi, lo))
+    sx = live_box(bear_bars)[0] if bear_bars else None
     if sx:
-        out.update(bear_hi=sx[0], bear_lo=sx[1], bear_lv=box_levels(*sx))
+        out.update(bear_hi=sx["hi"], bear_lo=sx["lo"], bear_start=sx["start"], bear_lv=box_levels(sx["hi"], sx["lo"]))
     elif bear_last:                                   # SOXS 박스가 아직 없으면 SOXL 박스를 뒤집어 어림
         w = (hi - lo) / last
         out["bear_lv"] = {"buy_max": bear_last * (1 + (last - (hi - ZONE * (hi - lo))) / last),

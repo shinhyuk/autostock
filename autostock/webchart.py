@@ -25,8 +25,9 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  const vs=b.map(x=>x[5]||0).sort((a,b)=>a-b),vmax=vs[Math.floor(vs.length*.95)]||vs[vs.length-1]||1;
  for(let i=0;i<n;i++){const [t,o,h,l,c,v]=b[i],up=c>=o,col=up?'var(--up)':'var(--dn)',vh2=Math.min((v||0)/vmax,1)*vh;
   s.append(el('rect',{x:X(i)-Math.max(step*.35,.5),y:vt+vh-vh2,width:Math.max(step*.7,1),height:vh2,fill:col,opacity:.35}))}
- if(rg.length==2){const y1=Y(rg[1]),y2=Y(rg[0]);s.append(el('rect',{x:pl,y:y1,width:pw,height:Math.max(y2-y1,1),fill:'var(--warn)',opacity:.07}))}
- for(const bd of (D.bands||[])){const y1=Y(bd.hi),y2=Y(bd.lo);s.append(el('rect',{x:pl,y:y1,width:pw,height:Math.max(y2-y1,1),fill:bd.k=='bl'?'var(--up)':'var(--dn)',opacity:.13}))}
+ const rx=D.range_t&&D.range_t>b[0][0]?X(idx(D.range_t))-step/2:pl;   // 박스가 시작된 봉부터 칠한다
+ if(rg.length==2){const y1=Y(rg[1]),y2=Y(rg[0]);s.append(el('rect',{x:rx,y:y1,width:W-pr-rx,height:Math.max(y2-y1,1),fill:'var(--warn)',opacity:.1}))}
+ for(const bd of (D.bands||[])){const y1=Y(bd.hi),y2=Y(bd.lo);s.append(el('rect',{x:rx,y:y1,width:W-pr-rx,height:Math.max(y2-y1,1),fill:bd.k=='bl'?'var(--up)':'var(--dn)',opacity:.13}))}
  if(step>=3){for(let i=0;i<n;i++){const [t,o,h,l,c]=b[i],col=c>=o?'var(--up)':'var(--dn)',w=Math.max(step*.62,1.5);
    s.append(el('line',{x1:X(i),x2:X(i),y1:Y(h),y2:Y(l),stroke:col,'stroke-width':1}),el('rect',{x:X(i)-w/2,y:Math.min(Y(o),Y(c)),width:w,height:Math.max(Math.abs(Y(o)-Y(c)),1),fill:col,rx:1}))}}
  else{s.append(el('path',{d:b.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(x[4]).toFixed(1)).join(''),fill:'none',stroke:'var(--fg)','stroke-width':1.6,'stroke-linejoin':'round',opacity:.85}))}

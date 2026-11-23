@@ -1038,14 +1038,25 @@ def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
     assert not any("노이즈" in k for k in v)
 
 
+def _osc(t0, n, base, amp):
+    """1분봉 옆걸음: 10분마다 위·아래 경계에 번갈아 닿는다 (박스 = base±amp)."""
+    out = []
+    for i in range(n):
+        h = base + amp if i % 20 == 0 else base + amp * 0.1
+        lo = base - amp if i % 20 == 10 else base - amp * 0.1
+        out.append(Bar(t0 + timedelta(minutes=i), base, h, lo, base, 1))
+    return out
+
+
 def _ext_history(path):
     """매일 애프터 16:00 에 박스 하단으로 내려왔다가 다음 5분에 +1% 넘게 오르는 가짜 5분봉 40일."""
     rows, d = [], datetime(2026, 9, 1, tzinfo=ET)
     while len({r[0] // 86400 for r in rows}) < 40:
         if d.weekday() < 5:
             t = d.replace(hour=15, minute=0)
-            for i in range(12):
-                rows.append([int((t + timedelta(minutes=5 * i)).timestamp()), 100, 101, 99, 100])
+            for i in range(12):                              # 위·아래 경계에 번갈아 닿는 옆걸음
+                hl = (101, 99.8) if i % 2 == 0 else (100.2, 99)
+                rows.append([int((t + timedelta(minutes=5 * i)).timestamp()), 100, hl[0], hl[1], 100])
             t16 = int(d.replace(hour=16).timestamp())
             rows.append([t16, 100, 100, 99.1, 99.2])
             rows.append([t16 + 300, 99.2, 100.3, 99.2, 100.2])
@@ -1062,10 +1073,17 @@ def test_ext_box_zone_and_history_odds(tmp_path):
     assert extbox.session(datetime(2026, 11, 22, 5, 0, tzinfo=ET)) is None                 # 일요일
     assert extbox.next_session(datetime(2026, 11, 23, 12, 0, tzinfo=ET))[0] == "post"
     assert [extbox.zone(p, 101, 99) for p in (101.5, 100.8, 100, 99.2, 98)] == ["above", "top", "mid", "bottom", "below"]
-    t0 = int(datetime(2026, 11, 23, 16, 0, tzinfo=ET).timestamp() * 1000)
-    bars = [[t0 + i * 60000, 100, 101, 99, 100, 1] for i in range(60)] + [[t0 + 60 * 60000, 100, 102, 100, 101.8, 1]]
-    assert extbox.live_box(bars) == (101, 99)                                               # 지금 봉은 박스에서 뺌
-    assert extbox.live_box(bars[-10:]) is None                                              # 자료 부족
+    t0 = datetime(2026, 11, 23, 16, 0, tzinfo=ET)
+    ms = lambda b: [b.ts.timestamp() * 1000, b.open, b.high, b.low, b.close, 1]   # noqa: E731
+    bars = [ms(b) for b in _osc(t0, 61, 100, 1)] + [[(t0 + timedelta(minutes=61)).timestamp() * 1000, 100, 102, 100, 101.8, 1]]
+    bx, brk = extbox.live_box(bars)
+    assert (bx["hi"], bx["lo"]) == (101, 99) and brk is None                               # 지금 봉은 박스에서 뺌
+    assert extbox.live_box(bars[-10:])[0] is None                                           # 자료 부족
+    flat = [[b[0], 100, 101, 99, 100, 1] for b in bars]
+    assert extbox.live_box(flat)[0] is None                                                 # 경계에 따로 닿은 적이 없으면 박스 아님
+    more = bars + [[bars[-1][0] + 60000 * k, 101.8, 102, 101.5, 101.8, 1] for k in (1, 2, 3)]
+    bx, brk = extbox.live_box(more)
+    assert bx is None and brk["dir"] == "up" and brk["hi"] == 101                           # 종가 2봉 연속 밖 → 돌파로 박스 끝
     p = str(tmp_path / "h.json")
     _ext_history(p)
     st = extbox.stats(p, 1.0)
@@ -1084,10 +1102,8 @@ def test_ext_tab_chart_card_and_page(tmp_path, monkeypatch):
     store = webdata.BarStore(str(tmp_path / "b.json"))
     now = datetime(2026, 11, 23, 16, 50, 20, tzinfo=ET)
     t0 = now.replace(second=0) - timedelta(minutes=65)
-    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 100, 101, 99, 100, 1) for i in range(65)]
-                + [Bar(now.replace(second=0), 100, 100, 99.1, 99.2, 1)])
-    store.merge("SOXS", [Bar(t0 + timedelta(minutes=i), 20, 20.4, 19.6, 20, 1) for i in range(65)]
-                + [Bar(now.replace(second=0), 20, 20.2, 20, 20.15, 1)])
+    store.merge("SOXL", _osc(t0, 65, 100, 1) + [Bar(now.replace(second=0), 100, 100, 99.1, 99.2, 1)])
+    store.merge("SOXS", _osc(t0, 65, 20, 0.4) + [Bar(now.replace(second=0), 20, 20.2, 20, 20.15, 1)])
     monkeypatch.setattr(market_hours, "now_et", lambda: now)
     monkeypatch.setattr(webdata, "market", lambda c: None)
     d = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)
@@ -1131,7 +1147,7 @@ def test_ext_tab_falls_back_to_yahoo_bars(tmp_path, monkeypatch):
     def fake(sym):
         calls.append(sym)
         px = 100 if sym == "SOXL" else 20
-        return [Bar(t0 + timedelta(minutes=i), px, px + 1, px - 1, px, 1) for i in range(71)]
+        return _osc(t0, 71, px, px / 100)
     monkeypatch.setattr(extbox, "yahoo_1m", fake)
     monkeypatch.setattr(market_hours, "now_et", lambda: now)
     monkeypatch.setattr(webdata, "market", lambda c: None)
@@ -1149,7 +1165,7 @@ def test_ext_tab_shows_spread_and_research(tmp_path, monkeypatch):
     now = datetime(2026, 11, 23, 16, 50, 20, tzinfo=ET)
     t0 = now.replace(second=0) - timedelta(minutes=65)
     for sym, px in (("SOXL", 100), ("SOXS", 20)):
-        store.merge(sym, [Bar(t0 + timedelta(minutes=i), px, px * 1.01, px * .99, px, 1) for i in range(66)])
+        store.merge(sym, _osc(t0, 66, px, px / 100))
 
     class MK:
         def bars(self, s, n): return []

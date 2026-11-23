@@ -355,7 +355,7 @@ def ext_hist_path(cfg) -> str:
 
 
 def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
-    """시간외 탭 차트: SOXL 에 직전 60분 박스, 확률이 높은 쪽 종목에 목표·손절선. 'advice' 는 화면 카드용."""
+    """시간외 탭 차트: 두 종목 각자의 고정 박스, 확률이 높은 쪽 종목에 목표·손절선. 'advice' 는 화면 카드용."""
     bull, bear = cfg.bull, cfg.bear
     if sym not in (bull, bear):
         return {"error": "알 수 없는 종목"}
@@ -389,22 +389,22 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
         note = "시세: 야후 (증권사 시간외 분봉이 비어 있음)"
     since = t - span * 60 if span > 0 else (sess[1].timestamp() if sess else t - 8 * 3600)
     bars = store.get(sym, since)
-    back = t - (extbox.BOX_MIN + 5) * 60
+    back = t - 6 * 3600                               # 박스는 최대 3시간짜리라 넉넉히
     adv = extbox.advice(store.get(bull, back), store.get(bear, back), now, ext_hist_path(cfg), x, cfg.fee_pct)
     adv["book"] = {k: v for k, v in book.items() if v}
-    lines, rng, bands = [], None, []
+    lines, rng, bands, rng_t = [], None, [], None
     r4 = lambda v: round(v, 4)   # noqa: E731
     if sym == bull and adv.get("hi"):
         hi, lo, lv = adv["hi"], adv["lo"], adv["bull_lv"]
-        rng = [lo, hi]
+        rng, rng_t = [lo, hi], adv["box_start"]
         sell_sig = hi - extbox.ZONE * (hi - lo)
-        lines += [{"v": r4(hi), "k": "rng", "l": "박스 상단 (직전 60분 고가)"}, {"v": r4(lo), "k": "rng", "l": "박스 하단 (직전 60분 저가)"},
+        lines += [{"v": r4(hi), "k": "rng", "l": "박스 상단"}, {"v": r4(lo), "k": "rng", "l": "박스 하단"},
                   {"v": r4(sell_sig), "k": "bxs", "l": f"이 위면 {bear} 매수"}, {"v": r4(lv["buy_max"]), "k": "bxl", "l": f"이 아래면 {bull} 매수"}]
         bands = [{"lo": lo, "hi": lv["buy_max"], "k": "bl"}, {"lo": sell_sig, "hi": hi, "k": "bs"}]
     if sym == bear and adv.get("bear_hi"):
         hi, lo, lv = adv["bear_hi"], adv["bear_lo"], adv["bear_lv"]
-        rng = [lo, hi]
-        lines += [{"v": r4(hi), "k": "rng", "l": "박스 상단 (직전 60분 고가)"}, {"v": r4(lo), "k": "rng", "l": "박스 하단 (직전 60분 저가)"},
+        rng, rng_t = [lo, hi], adv["bear_start"]
+        lines += [{"v": r4(hi), "k": "rng", "l": "박스 상단"}, {"v": r4(lo), "k": "rng", "l": "박스 하단"},
                   {"v": r4(lv["buy_max"]), "k": "bxs", "l": f"{bear} 매수 구간 (이 아래)"}]
         bands = [{"lo": lo, "hi": lv["buy_max"], "k": "bs"}]
     rec = adv.get("rec")
@@ -412,4 +412,4 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
         lv = adv["bull_lv" if rec == "bull" else "bear_lv"]
         lines += [{"v": r4(lv["target"]), "k": "take", "l": "매도 목표"}, {"v": r4(lv["stop"]), "k": "stop", "l": "손절"}]
     return {"sym": sym, "bars": bars, "vwap": [None] * len(bars), "marks": [], "lines": lines, "range": rng,
-            "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}
+            "range_t": rng_t * 1000 if rng_t else None, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}

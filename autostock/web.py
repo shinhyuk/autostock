@@ -452,9 +452,12 @@ def ext_card(adv: dict, cfg) -> str:
                        "<div class=sub>거래가 없거나 시세를 받지 못하고 있어 판단하지 않습니다"
                        f"{' · 마지막 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
         elif "zone" not in adv:
-            out.append(f"<div class=sub>{e(head)}</div><div class=big2>박스 만드는 중</div>"
-                       "<div class=sub>직전 60분 시세가 45분 넘게 쌓이면 박스를 그립니다"
-                       f"{' · 현재 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
+            brk = adv.get("last_break")
+            why = (f"{datetime.fromtimestamp(brk['ts'], KST):%H:%M} 에 박스({usd(brk['lo'])}~{usd(brk['hi'])})를 "
+                   f"{'위' if brk['dir'] == 'up' else '아래'}로 뚫었습니다. 가격이 다시 자리 잡으면 새 박스가 생깁니다." if brk else
+                   "위·아래 경계에 각각 2번 이상 닿으며 옆으로 움직이는 구간(45분~3시간)을 찾는 중입니다.")
+            out.append(f"<div class=sub>{e(head)}</div><div class=big2>박스 없음 · 기다리기</div>"
+                       f"<div class=sub>{e(why)}{' · 현재 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
         else:
             out.append(_ext_box_part(adv, cfg, head))
     # ── 참고: ±폭 확률 (접어 둠)
@@ -516,11 +519,13 @@ def _ext_box_part(adv: dict, cfg, head: str) -> str:
     else:
         title, vc = "쉬기 (박스를 벗어남, 새 박스를 기다림)", ""
     out = [f"<div class=sub>{e(head)}</div><div class='big2 {'tu' if vc == 'vu' else 'td' if vc == 'vd' else ''}'>{e(title)}</div>"
-           f"<div class=sub>{e(bull)} {usd(last)} · {extbox.ZLABEL[z]} · 박스 {usd(lo)} ~ {usd(hi)} (폭 {adv['width']:.1f}%)</div>"]
+           f"<div class=sub>{e(bull)} {usd(last)} · {extbox.ZLABEL[z]} · 박스 {usd(lo)} ~ {usd(hi)} (폭 {adv['width']:.1f}%, "
+           f"{datetime.fromtimestamp(adv['box_start'], KST):%H:%M} 부터)</div>"]
     rows = []
 
     def row(sym, lv, px, strong):
-        g, l_ = (lv["target"] / px - 1) * 100, (lv["stop"] / px - 1) * 100
+        base = min(px, lv["buy_max"])                     # 아직 매수가 위에 있으면 매수가 기준으로 %
+        g, l_ = (lv["target"] / base - 1) * 100, (lv["stop"] / base - 1) * 100
         nm = f"<b>{e(sym)}</b>" if strong else e(sym)
         rows.append(f"<tr><td>{nm}<br><small class=mutt>지금 {usd(px)}</small></td><td class=r>{usd(lv['buy_max'])} 이하</td>"
                     f"<td class='r tu'>{usd(lv['target'])}<br><small>{g:+.1f}%</small></td>"
@@ -541,7 +546,7 @@ def _ext_box_part(adv: dict, cfg, head: str) -> str:
                    f"<b>{usd(sig_s)} 이상</b>으로 오르면 {e(bear)} 매수 차례입니다.</div>")
     elif z in ("above", "below"):
         out.append(f"<div class=note>{e(bull)} 가 박스 {'위' if z == 'above' else '아래'}로 나가 박스 매매를 쉽니다. "
-                   "직전 60분으로 박스를 계속 다시 그리므로, 가격이 자리 잡으면 새 박스가 생깁니다.</div>")
+                   "종가가 2봉 연속 박스 밖에 머물면 박스를 지우고, 가격이 다시 옆으로 움직이면 새 박스를 그립니다.</div>")
     bk = adv.get("book") or {}
     if bk:
         parts = []
@@ -612,7 +617,7 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
             f"<style>{CSS}</style><main><header><h1>{e(cfg.bull)} / {e(cfg.bear)} 시간외 직접 매매</h1>"
             f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>{_nav(token, 'ext', cfg.modes)}</nav>"
             "<div class='card note'>이 탭은 주문하지 않습니다. 프리마켓(한국시간 18:00~23:30)·애프터마켓(06:00~10:00, 서머타임은 1시간 빠름)에 "
-            f"{e(cfg.bull)}·{e(cfg.bear)} 의 직전 60분 박스를 그리고, {e(cfg.bull)} 가 박스 아래쪽이면 {e(cfg.bull)}, 위쪽이면 {e(cfg.bear)} 매수를 권하며 "
+            f"{e(cfg.bull)}·{e(cfg.bear)} 각자의 박스(위·아래 경계에 2번 이상 닿은 옆걸음 구간, 뚫릴 때까지 고정)를 그리고, {e(cfg.bull)} 가 박스 아래쪽이면 {e(cfg.bull)}, 위쪽이면 {e(cfg.bear)} 매수를 권하며 "
             "매수·매도·손절가를 알려 줍니다. 주문은 한국투자증권 앱에서 직접 하세요.</div>"
             "<h2>지금 판단 (10초마다 갱신)</h2>"
             "<section class=card id=adv><div class=note>불러오는 중…</div></section>"
@@ -620,7 +625,7 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
             + "".join(f"<button data-sym='{e(s_)}'{' class=on' if s_ == cfg.bull else ''}>{e(s_)}</button>" for s_ in (cfg.bull, cfg.bear))
             + "</div><div class=spans>"
             + "".join(f"<button data-span='{v}'>{t}</button>" for v, t in ((60, "1시간"), (120, "2시간"), (240, "4시간"), (0, "이번 시간대")))
-            + "</div><div class=legend><span><i class='lg-line rng'></i>박스 (직전 60분)</span>"
+            + "</div><div class=legend><span><i class='lg-line rng'></i>박스</span>"
               f"<span><i class='lg-band bl'></i>{e(cfg.bull)} 매수 구간</span><span><i class='lg-band bs'></i>{e(cfg.bear)} 매수 구간</span>"
               "<span><i class='lg-line tkp'></i>매도 목표</span><span><i class='lg-line stp'></i>손절</span></div>"
               f"<div class=chartwrap><div id=chart data-mode='ext' data-sym='{e(cfg.bull)}'></div><div id=tip></div></div>"
