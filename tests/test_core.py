@@ -964,3 +964,22 @@ def test_noise_bootstrap_from_yahoo_payload(tmp_path, monkeypatch):
     assert b.bootstrap_yahoo("SOXL") == 1
     d = b.days["2026-01-02"]
     assert d["open"] == 30.0 and d["m"]["30"] == 30.06 and d["m"]["360"] == 30.72 and d["close"] == 30.78
+
+
+def test_ledger_compounds_and_resets_on_capital_change(rig):
+    import json
+    e, m, _ = rig(dec(stop=1.0), dec())
+    e.tick()
+    assert e.st.open.qty == 23                                       # $714 / $30
+    step(e, m, SOXL=29.6)                                            # 손절
+    loss = e.ledger["realized_usd"]
+    assert loss < 0 and json.load(open(e.ledger_path))["realized_usd"] == loss
+    e2 = Engine(e.cfg, m, PaperBroker(slippage_pct=0), Brain(dec()), clock=lambda: m.now)   # 다음 날·재시작
+    assert e2.equity_usd == e.cfg.capital_usd + loss                 # 채우지 않음
+    e2.st.roll("2026-01-06")
+    m.px["SOXL"] = 30.0
+    m.now += timedelta(days=1)
+    e2.tick()
+    assert e2.st.open.qty == int((e.cfg.capital_usd + loss) / 30.0)  # 줄어든 자산 기준 수량
+    e3 = Engine(dataclasses.replace(e.cfg, capital_krw=2_000_000), m, PaperBroker(), Brain(), clock=lambda: m.now)
+    assert e3.ledger["realized_usd"] == 0                            # 시작 자금이 바뀌면 새로 시작

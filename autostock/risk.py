@@ -55,10 +55,11 @@ class Risk:
         c = self.cfg
         return round(min(max((atr_pct or 0) * c.trail_atr_mult, c.trail_min_pct), stop_pct), 2)
 
-    def size(self, st: DayState, d: Decision, price: float) -> int:
+    def size(self, st: DayState, d: Decision, price: float, equity: float | None = None) -> int:
         """매수 수량. 운용자금(+당일 실현손익) 범위 안에서, 손절 시 일일 손실한도를 넘지 않게."""
         c = self.cfg
-        budget = (c.capital_usd + min(st.realized_usd, 0)) * min(max(d.size_pct, 50), 100) / 100
+        eq = c.capital_usd if equity is None else equity
+        budget = (eq + (min(st.realized_usd, 0) if equity is None else 0)) * min(max(d.size_pct, 50), 100) / 100
         qty = int(budget / (price * (1 + c.fee_pct / 100)))
         stop, _ = self.stops(d)
         room = c.max_loss_usd + st.realized_usd          # 남은 손실 여유
@@ -66,7 +67,7 @@ class Risk:
         if per_share_risk > 0:
             qty = min(qty, int(room / per_share_risk))
         if c.risk_per_trade_pct and stop > 0:        # 한 번 손절에 자본의 n% 만 잃게
-            qty = min(qty, int(c.capital_usd * c.risk_per_trade_pct / 100 / (price * stop / 100)))
+            qty = min(qty, int(eq * c.risk_per_trade_pct / 100 / (price * stop / 100)))
         return max(qty, 0)
 
     # ── 청산 ────────────────────────────────────────────────

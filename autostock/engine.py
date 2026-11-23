@@ -58,6 +58,8 @@ class Engine:
         self._act_min: datetime | None = None
         self._closed_note: datetime | None = None
         self._last_price: float | None = None
+        self.ledger_path = os.path.join(cfg.data_dir, f"ledger_{cfg.mode}.json")
+        self.ledger = self._load_ledger()
         self.st = DayState.load(self.state_path)
         self._refresh_halt()
         self.last_decision_at: datetime | None = None
@@ -73,6 +75,35 @@ class Engine:
             self.noise_book = NoiseBook(os.path.join(cfg.data_dir, f"noise_{cfg.bull}.json"))
         self.ref_prices: dict[str, float] = {}       # 직전 AI 판단 때의 가격 (급변 감지용)
         self.trigger = "scheduled"
+
+    # ── 누적 장부: 매일 다시 채우지 않고 손익을 쌓아 그 자산으로 굴린다 ──
+    def _load_ledger(self) -> dict:
+        try:
+            with open(self.ledger_path, encoding="utf-8") as f:
+                led = json.load(f)
+            if led.get("capital_krw") == self.cfg.capital_krw:
+                return led
+            log.info("시작 자금이 바뀌어(%s → %s원) 누적 장부를 새로 시작합니다", led.get("capital_krw"), self.cfg.capital_krw)
+        except (FileNotFoundError, ValueError):
+            pass
+        led = {"capital_krw": self.cfg.capital_krw, "start": self.clock().isoformat(), "realized_usd": 0.0, "trades": 0}
+        self._save_ledger(led)
+        return led
+
+    def _save_ledger(self, led: dict | None = None) -> None:
+        try:
+            os.makedirs(self.cfg.data_dir, exist_ok=True)
+            tmp = self.ledger_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(led or self.ledger, f, ensure_ascii=False)
+            os.replace(tmp, self.ledger_path)
+        except OSError:
+            pass
+
+    @property
+    def equity_usd(self) -> float:
+        """지금 굴리는 자산 = 시작 자금 + 지금까지 실현 손익 (보유 중인 평가손익은 제외)."""
+        return self.cfg.capital_usd + self.ledger["realized_usd"]
 
     def _refresh_halt(self) -> None:
         """목표·손실 한도·연속 손실로 멈춘 상태는 현재 설정으로 다시 판단한다 (설정을 바꾸고 재시작한 경우)."""
@@ -95,6 +126,7 @@ class Engine:
         """결과 페이지가 읽는 현재 상태(봇이 살아 있는지, 현재가, 평가손익)."""
         t, last = self.st.open, self._last_price
         data = {"ts": now.isoformat(), "status": status, "model": getattr(self.cfg, "model", ""),
+                "equity_usd": round(self.equity_usd, 2), "ledger": self.ledger,
                 "last": last, "unrealized_usd": round(self.risk.unrealized(t, last), 2) if t and last else None}
         if self.cfg.strategy == "orb":
             o = self.orb.get(market_hours.session_key(now)) or {}
@@ -200,7 +232,7 @@ class Engine:
     # ── 주문 ────────────────────────────────────────────────
     def _enter(self, d: Decision, last: float, atr_pct: float | None = None, trail: float | None = None,
                kind: str = "") -> None:
-        qty = self.risk.size(self.st, d, last)
+        qty = self.risk.size(self.st, d, last, self.equity_usd)
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
             return
@@ -229,6 +261,9 @@ class Engine:
         pnl = (fill.price - t.entry_price) * fill.qty - t.buy_fee * share - self.risk.fee(fill.price, fill.qty)
         st = self.st
         st.realized_usd += pnl
+        self.ledger["realized_usd"] += pnl
+        self.ledger["trades"] += 1 if fill.qty >= t.qty else 0
+        self._save_ledger()
         if fill.qty < t.qty:        # 부분 체결: 남은 수량은 계속 보유
             t.buy_fee *= 1 - share
             t.qty -= fill.qty
@@ -314,7 +349,7 @@ class Engine:
             "market": market,
             "sector": sector,
             "account": {
-                "capital_usd": round(c.capital_usd, 2),
+                "capital_usd": round(self.equity_usd, 2),
                 "day_realized_usd": round(st.realized_usd, 2),
                 "day_target_usd": round(c.target_usd, 2),
                 "day_max_loss_usd": round(c.max_loss_usd, 2),

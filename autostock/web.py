@@ -169,6 +169,14 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     pos = min(max((total + limit) / span * 100, 0), 100)
     lo, hi = sorted((zero, pos))
     color = "var(--up)" if total > 0 else "var(--dn)"
+    led = (live or {}).get("ledger")
+    if not led:
+        try:
+            with open(os.path.join(cfg.data_dir, f"ledger_{mode}.json"), encoding="utf-8") as f:
+                led = json.load(f)
+        except (FileNotFoundError, ValueError):
+            led = None
+    equity = cfg.capital_usd + (led["realized_usd"] if led else 0)
     key = s.get("date") or ""
     sname = {"D": "주간거래", "P": "프리마켓", "A": "애프터마켓"}.get(key[-1:], "정규장") if key else ""
     out.append(f"<section class='card hero'><div class=k>{'이번 세션' if len(cfg.sessions) > 1 else '오늘'} 손익"
@@ -182,7 +190,10 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"<div class=ends><span>손실한도 -{cfg.daily_max_loss_krw:,.0f}</span><span>목표 +{cfg.daily_target_krw:,.0f}</span></div>"
                f"<div class=stats><div><div class=k>거래</div><div class=v>{s['trades']}회</div></div>"
                f"<div><div class=k>승 / 패</div><div class=v>{s['wins']} / {s['losses']}</div></div>"
-               f"<div><div class=k>운용자금</div><div class=v>{cfg.capital_krw:,.0f}</div></div></div>"
+               f"<div><div class=k>현재 자산</div><div class=v>{equity * fx:,.0f}</div></div></div>"
+               + (f"<div class=note>시작 {cfg.capital_krw:,.0f}원 ({_kst(led['start'], '%m-%d %H:%M')}) → 누적 실현 "
+                  f"<b class='{cls(led['realized_usd'])}'>{won(led['realized_usd'])}</b> · {led.get('trades', 0)}건 · "
+                  f"채우지 않고 이 자산으로 계속 매매</div>" if led else "")
                + (f"<div class=note>종료 사유: {e(s['halted'])}</div>" if s["halted"] else "") + "</section>")
 
     # ── 전략 상태

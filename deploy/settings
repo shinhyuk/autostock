@@ -31,7 +31,7 @@ LIVE__ORB_TRAIL_PCT=1.5
 LIVE__ORB_PEERS=SOXX,QQQ
 LIVE__TAKE_PROFIT_MAX_PCT=10
 
-# 모의투자: 100만원으로 SOXL/SOXS, 정규장만. 가상매매(기존 돌파 설정)와 나란히 비교하는 개선안:
+# 모의투자: 1000만원으로 SOXL/SOXS, 정규장만. (모든 탭: 매일 다시 채우지 않고 누적 손익을 반영한 자산으로 매매) 가상매매(기존 돌파 설정)와 나란히 비교하는 개선안:
 #  돌파(진입 마감 60분, 추적 손절 없음, 손절은 범위 중간값) + 범위 안 박스권 매매 (research/README.md)
 DEMO__STRATEGY=orb
 DEMO__SESSIONS=regular
@@ -57,9 +57,9 @@ DEMO__BULL_SYMBOL=SOXL
 DEMO__BEAR_SYMBOL=SOXS
 DEMO__CONTEXT_SYMBOLS=NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ
 DEMO__TRAIL_MIN_PCT=0.6
-DEMO__CAPITAL_KRW=1000000
-DEMO__DAILY_TARGET_KRW=100000
-DEMO__DAILY_MAX_LOSS_KRW=100000
+DEMO__CAPITAL_KRW=10000000
+DEMO__DAILY_TARGET_KRW=1000000
+DEMO__DAILY_MAX_LOSS_KRW=1000000
 
 # 가상매매: 1000만원 가정, 정규장만. 노이즈 영역 돌파 + 개장 범위 돌파 + 박스권 + 변동성 필터 (금액 조절 없음)
 #  (research/combo.py: 45거래일 +292만, 최대 낙폭 -13.1%). 모의투자(노이즈 없음, 금액 조절)와 비교
