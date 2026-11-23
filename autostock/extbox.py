@@ -1,7 +1,8 @@
 """시간외(프리·애프터) 직접 매매 도우미. 주문은 하지 않는다.
 
 - 박스: 직전 60분의 고가·저가.
-- 위치: 박스 위로 돌파 / 상단 구간(위 25%) / 가운데 / 하단 구간(아래 25%) / 아래로 이탈.
+- 위치: 박스 위로 돌파 / 상단 구간(위 20%) / 가운데 / 하단 구간(아래 20%) / 아래로 이탈.
+- 박스 매매: SOXL 이 하단 구간이면 SOXL, 상단 구간이면 SOXS 매수. 목표는 반대쪽 80% 지점, 손절은 경계 밖 10%.
 - 확률: 과거 약 60일(야후 5분봉, 시간외 포함)에서 같은 시간대에 SOXL 이 같은 위치에 들어왔을 때,
   +X% 와 -X% 중 어느 쪽에 먼저 닿았는지 센다 (최대 2시간, 그 시간대가 끝나면 거기까지).
 """
@@ -19,7 +20,8 @@ from zoneinfo import ZoneInfo
 log = logging.getLogger("extbox")
 ET = ZoneInfo("America/New_York")
 BOX_MIN = 60
-ZONE = 0.25
+ZONE = 0.2                           # 박스 위·아래 20% = 매수 구간 (정규장 박스권과 같음)
+BOX_TARGET, BOX_STOP = 0.8, 0.1      # 목표: 반대쪽으로 폭의 80% 지점, 손절: 경계 밖 폭의 10%
 HORIZON_MIN = 120
 SLIP_PCT = 0.1                       # 시간외 호가 차이 (편도 가정)
 X_CHOICES = (1.0, 1.5, 2.0)
@@ -180,6 +182,89 @@ def samples(rows: list[list], x: float) -> list[dict]:
     return out
 
 
+def box_levels(hi: float, lo: float) -> dict:
+    """박스 하나의 매수 구간·목표·손절 (그 종목을 박스 아래쪽에서 산다고 볼 때)."""
+    w = hi - lo
+    return {"buy_max": lo + ZONE * w, "target": lo + BOX_TARGET * w, "stop": lo - BOX_STOP * w}
+
+
+def box_samples(rows: list[list]) -> list[dict]:
+    """과거 5분봉: 시간외에 SOXL 이 하단 구간에 새로 들어오면 SOXL 매수, 상단 구간이면 SOXS 매수(SOXL 반대로 어림).
+    목표·손절은 SOXL 박스 기준. 같은 봉에 둘 다 닿으면 손절로 본다. 2시간·시간대 끝까지 안 닿으면 그때 가격으로 정리."""
+    out, last_zone = [], {}
+    n = len(rows)
+    for i in range(n):
+        t = rows[i][0]
+        dt = datetime.fromtimestamp(t, ET)
+        s = session(dt)
+        if not s:
+            continue
+        name, _, close = s
+        end = min(close.timestamp(), t + HORIZON_MIN * 60)
+        win = [r for r in rows[max(0, i - BOX_MIN // 5 - 3):i] if t - BOX_MIN * 60 <= r[0] < t]
+        if len(win) < BOX_MIN // 5 * 0.75:
+            continue
+        hi, lo, p = max(r[2] for r in win), min(r[3] for r in win), rows[i][4]
+        z = zone(p, hi, lo)
+        key = (name, dt.date())
+        prev, last_zone[key] = last_zone.get(key), z
+        if z not in ("top", "bottom") or prev == z or t + 15 * 60 > end:
+            continue
+        w = hi - lo
+        long = z == "bottom"
+        tgt = lo + BOX_TARGET * w if long else hi - BOX_TARGET * w
+        stp = lo - BOX_STOP * w if long else hi + BOX_STOP * w
+        res, last = "none", p
+        for j in range(i + 1, n):
+            r = rows[j]
+            if r[0] >= end:
+                break
+            hit_s = r[3] <= stp if long else r[2] >= stp
+            hit_t = r[2] >= tgt if long else r[3] <= tgt
+            if hit_s:
+                res, last = "loss", stp
+                break
+            if hit_t:
+                res, last = "win", tgt
+                break
+            last = r[4]
+        move = (last / p - 1) * 100 * (1 if long else -1)
+        out.append({"s": name, "z": z, "d": dt.date().isoformat(), "r": res, "m": move})
+    return out
+
+
+def box_stats(path: str, fee_pct: float = 0.25) -> dict | None:
+    """{세션: {'bottom'|'top': {n, win, loss, none, avg, old, new}}} — avg 는 수수료·호가 차이 뺀 1회 평균 %."""
+    mt, rows = _load(path)
+    if not rows:
+        return None
+    st = _cache.setdefault("box", {})
+    if (mt, fee_pct) in st:
+        return st[(mt, fee_pct)]
+    sm = box_samples(rows)
+    days = sorted({x["d"] for x in sm})
+    mid = days[len(days) // 2] if days else ""
+    cost = 2 * fee_pct + 2 * SLIP_PCT
+    out: dict = {"days": len(days), "split": mid, "cost": cost, "by": {}}
+    for x in sm:
+        b = out["by"].setdefault(x["s"], {}).setdefault(x["z"], {"n": 0, "win": 0, "loss": 0, "none": 0,
+                                                                  "sum": 0.0, "old": [0, 0.0], "new": [0, 0.0]})
+        net = x["m"] - cost
+        b["n"] += 1
+        b[x["r"]] += 1
+        b["sum"] += net
+        h = b["old" if x["d"] < mid else "new"]
+        h[0] += 1
+        h[1] += net
+    for sess in out["by"].values():
+        for b in sess.values():
+            b["avg"] = b["sum"] / b["n"]
+            for k in ("old", "new"):
+                b[k] = b[k][1] / b[k][0] if b[k][0] else None
+    st[(mt, fee_pct)] = out
+    return out
+
+
 def stats(path: str, x: float, fee_pct: float = 0.25) -> dict | None:
     """{세션: {위치: {up, dn, none, old:[up,dn], new:[up,dn], ev_up, ev_dn}}, days, since, until}"""
     mt, rows = _load(path)
@@ -234,17 +319,19 @@ def verdict(b: dict | None, x: float = 1.0) -> tuple[str, str]:
     return want, ("위로" if want == "up" else "아래로") + " 먼저 간 경우가 더 많았고, 앞·뒤 기간 모두 같은 방향이었습니다"
 
 
-def advice(bull_bars: list[list], bear_last: float | None, now: datetime, path: str, x: float,
+def advice(bull_bars: list[list], bear_bars: list[list], now: datetime, path: str, x: float,
            fee_pct: float = 0.25) -> dict:
-    """화면에 보여줄 판단. 박스·위치·확률·주문 참고 가격."""
+    """화면에 보여줄 판단: 두 종목의 박스, SOXL 위치에 따른 박스 매매 권장(매수·목표·손절가), 참고 확률."""
     s = session(now)
     nxt = next_session(now)
     st = stats(path, x, fee_pct)
+    bst = box_stats(path, fee_pct)
     out: dict = {"x": x, "session": s[0] if s else None, "close": s[2] if s else None,
-                 "next": nxt, "stats": st}
+                 "next": nxt, "stats": st, "bstats": bst}
     if not bull_bars:
         return out
     last = bull_bars[-1][4]
+    bear_last = bear_bars[-1][4] if bear_bars else None
     out["last"] = last
     out["bear_last"] = bear_last
     out["age_min"] = (now.timestamp() - bull_bars[-1][0] / 1000) / 60
@@ -253,7 +340,15 @@ def advice(bull_bars: list[list], bear_last: float | None, now: datetime, path: 
         return out
     hi, lo = bx
     z = zone(last, hi, lo)
-    out.update(hi=hi, lo=lo, zone=z, width=(hi - lo) / last * 100)
+    out.update(hi=hi, lo=lo, zone=z, width=(hi - lo) / last * 100, bull_lv=box_levels(hi, lo))
+    sx = live_box(bear_bars) if bear_bars else None
+    if sx:
+        out.update(bear_hi=sx[0], bear_lo=sx[1], bear_lv=box_levels(*sx))
+    elif bear_last:                                   # SOXS 박스가 아직 없으면 SOXL 박스를 뒤집어 어림
+        w = (hi - lo) / last
+        out["bear_lv"] = {"buy_max": bear_last * (1 + (last - (hi - ZONE * (hi - lo))) / last),
+                          "target": bear_last * (1 + BOX_TARGET * w - (hi - last) / last),
+                          "stop": bear_last * (1 - BOX_STOP * w - (hi - last) / last)}
     if not s or out["age_min"] > 5:
         return out
     b = ((st or {}).get("by") or {}).get(s[0], {}).get(z)
@@ -263,4 +358,18 @@ def advice(bull_bars: list[list], bear_last: float | None, now: datetime, path: 
     out["plan"] = {"bull": (last, last * (1 + k), last * (1 - k))}
     if bear_last:
         out["plan"]["bear"] = (bear_last, bear_last * (1 + k), bear_last * (1 - k))
+    # 박스 매매 권장
+    rec = "bull" if z == "bottom" else "bear" if z == "top" else None
+    if rec == "bear" and not bear_last:
+        rec = None
+    out["rec"] = rec
+    out["bbox"] = ((bst or {}).get("by") or {}).get(s[0], {})
+    if rec:
+        lv = out["bull_lv" if rec == "bull" else "bear_lv"]
+        px = last if rec == "bull" else bear_last
+        gain = (lv["target"] / px - 1) * 100
+        cost = 2 * fee_pct + 2 * SLIP_PCT
+        out["rec_gain"], out["rec_loss"] = gain, (lv["stop"] / px - 1) * 100
+        if gain < cost * 1.5:
+            out["rec_thin"] = True                    # 목표까지 남은 폭이 수수료에 비해 작음
     return out

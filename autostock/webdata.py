@@ -385,18 +385,26 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
         note = "시세: 야후 (증권사 시간외 분봉이 비어 있음)"
     since = t - span * 60 if span > 0 else (sess[1].timestamp() if sess else t - 8 * 3600)
     bars = store.get(sym, since)
-    sb = store.get(bear, t - 15 * 60)
-    adv = extbox.advice(store.get(bull, t - (extbox.BOX_MIN + 5) * 60), sb[-1][4] if sb else None, now,
-                        ext_hist_path(cfg), x, cfg.fee_pct)
-    lines, rng = [], None
-    if adv.get("hi") and sym == bull:
-        rng = [adv["lo"], adv["hi"]]
-        lines += [{"v": round(adv["hi"], 4), "k": "rng", "l": "박스 상단 (직전 60분 고가)"},
-                  {"v": round(adv["lo"], 4), "k": "rng", "l": "박스 하단 (직전 60분 저가)"}]
-    side = adv.get("side")
-    plan = (adv.get("plan") or {}).get("bull" if side == "up" else "bear") if side else None
-    if plan and sym == (bull if side == "up" else bear):
-        lines += [{"v": round(plan[1], 4), "k": "take", "l": f"목표 +{x:g}%"},
-                  {"v": round(plan[2], 4), "k": "stop", "l": f"손절 -{x:g}%"}]
+    back = t - (extbox.BOX_MIN + 5) * 60
+    adv = extbox.advice(store.get(bull, back), store.get(bear, back), now, ext_hist_path(cfg), x, cfg.fee_pct)
+    lines, rng, bands = [], None, []
+    r4 = lambda v: round(v, 4)   # noqa: E731
+    if sym == bull and adv.get("hi"):
+        hi, lo, lv = adv["hi"], adv["lo"], adv["bull_lv"]
+        rng = [lo, hi]
+        sell_sig = hi - extbox.ZONE * (hi - lo)
+        lines += [{"v": r4(hi), "k": "rng", "l": "박스 상단 (직전 60분 고가)"}, {"v": r4(lo), "k": "rng", "l": "박스 하단 (직전 60분 저가)"},
+                  {"v": r4(sell_sig), "k": "bxs", "l": f"이 위면 {bear} 매수"}, {"v": r4(lv["buy_max"]), "k": "bxl", "l": f"이 아래면 {bull} 매수"}]
+        bands = [{"lo": lo, "hi": lv["buy_max"], "k": "bl"}, {"lo": sell_sig, "hi": hi, "k": "bs"}]
+    if sym == bear and adv.get("bear_hi"):
+        hi, lo, lv = adv["bear_hi"], adv["bear_lo"], adv["bear_lv"]
+        rng = [lo, hi]
+        lines += [{"v": r4(hi), "k": "rng", "l": "박스 상단 (직전 60분 고가)"}, {"v": r4(lo), "k": "rng", "l": "박스 하단 (직전 60분 저가)"},
+                  {"v": r4(lv["buy_max"]), "k": "bxs", "l": f"{bear} 매수 구간 (이 아래)"}]
+        bands = [{"lo": lo, "hi": lv["buy_max"], "k": "bs"}]
+    rec = adv.get("rec")
+    if rec and sym == (bull if rec == "bull" else bear):
+        lv = adv["bull_lv" if rec == "bull" else "bear_lv"]
+        lines += [{"v": r4(lv["target"]), "k": "take", "l": "매도 목표"}, {"v": r4(lv["stop"]), "k": "stop", "l": "손절"}]
     return {"sym": sym, "bars": bars, "vwap": [None] * len(bars), "marks": [], "lines": lines, "range": rng,
-            "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}
+            "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}

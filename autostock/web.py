@@ -72,7 +72,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .pbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:4px 0 2px;background:var(--track)}.pbar i{display:block}.pbar .u{background:var(--up)}.pbar .d{background:var(--dn)}
 .verdict{margin-top:14px;padding:12px;border-radius:10px;border:1.5px solid var(--line)}.verdict.vu{border-color:var(--up)}.verdict.vd{border-color:var(--dn)}.verdict b{display:block;font-size:16px;margin-bottom:2px}.verdict.vu b{color:var(--up)}.verdict.vd b{color:var(--dn)}
 table.plan{margin-top:10px}table.plan td,table.plan th{padding:7px 4px}
-tr.cur td{font-weight:700}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
+tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
 .tu{color:var(--up)}.td{color:var(--dn)}.mutt{color:var(--mut)}.warnt{color:var(--warn)}.pad{padding:0 4px}
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
 dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:12px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
@@ -456,66 +456,116 @@ def ext_card(adv: dict, cfg) -> str:
                        "<div class=sub>직전 60분 시세가 45분 넘게 쌓이면 박스를 그립니다"
                        f"{' · 현재 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
         else:
-            out.append(f"<div class=sub>{e(head)} · {e(bull)} 위치</div><div class=big2>{extbox.ZLABEL[adv['zone']]}</div>"
-                       f"<div class=sub>현재 {usd(adv['last'])} · 박스 {usd(adv['lo'])} ~ {usd(adv['hi'])} (폭 {adv['width']:.1f}%, 직전 60분)</div>")
-            b = adv.get("b")
-            if b and b["up"] + b["dn"]:
-                res = b["up"] + b["dn"]
-                pu = b["up"] / res * 100
-                half = lambda h: f"{h[0] / sum(h) * 100:.0f}% ({sum(h)}번)" if sum(h) else "사례 없음"   # noqa: E731
-                out.append(f"<div class=plab><span class=tu>▲ +{x:g}% 먼저 {pu:.0f}%</span><span class=td>{100 - pu:.0f}% -{x:g}% 먼저 ▼</span></div>"
-                           f"<div class=pbar role=img aria-label='위로 먼저 {pu:.0f}%'><i class=u style='width:{pu:.1f}%'></i><i class=d style='width:{100 - pu:.1f}%'></i></div>"
-                           f"<div class=note>과거 {st['days']}일 {extbox.SLABEL[sess]}에서 {e(bull)} 가격이 이 위치에 들어온 {b['n']}번: "
-                           f"+{x:g}% 에 먼저 닿음 {b['up']}번, -{x:g}% 에 먼저 닿음 {b['dn']}번, 2시간 안에 둘 다 안 닿음 {b['none']}번. "
-                           f"위로 먼저 간 비율: 앞 기간 {half(b['old'])} · 뒤 기간 {half(b['new'])}</div>")
-            side = adv.get("side")
-            title = (f"확률이 더 높은 쪽: {bull} 매수 (위로)" if side == "up" else
-                     f"확률이 더 높은 쪽: {bear} 매수 (아래로)" if side == "dn" else "관망 (뚜렷한 방향 없음)")
-            vc = {"up": "vu", "dn": "vd"}.get(side, "")
-            out.append(f"<div class='verdict {vc}'><b>{e(title)}</b>{e(adv.get('why', ''))}</div>")
-            plan = adv.get("plan") or {}
-            rows = []
-            for key, sym, sd in (("bull", bull, "up"), ("bear", bear, "dn")):
-                if key in plan:
-                    a, t, s_ = plan[key]
-                    nm = f"<b>{e(sym)} 매수</b>" if side == sd else f"{e(sym)} 매수"
-                    rows.append(f"<tr><td>{nm}</td><td class=r>{usd(a)}</td><td class='r tu'>{usd(t)}</td><td class='r td'>{usd(s_)}</td></tr>")
-            if rows:
-                out.append(f"<table class=plan><tr><th>주문 참고</th><th class=r>지금</th><th class=r>목표 +{x:g}%</th>"
-                           f"<th class=r>손절 -{x:g}%</th></tr>" + "".join(rows) + "</table>")
-            if b:
-                be = 50 + st["cost"] / (2 * x) * 100
-                out.append(f"<div class='note{' warnt' if max(b['ev_up'], b['ev_dn']) < 0 else ''}'>수수료·호가 차이(왕복 약 {st['cost']:.1f}%)를 빼면 "
-                           f"과거 같은 상황에서 {e(bull)} 매수는 1회 평균 {b['ev_up']:+.2f}%, {e(bear)} 매수는 {b['ev_dn']:+.2f}% 였습니다. "
-                           f"±{x:g}% 로 사고팔아 이익이 나려면 맞힐 확률이 {be:.0f}% 를 넘어야 합니다.</div>")
+            out.append(_ext_box_part(adv, cfg, head))
+    # ── 참고: ±폭 확률 (접어 둠)
+    ref = []
+    if sess and "zone" in adv and adv.get("age_min", 0) <= 5:
+        b = adv.get("b")
+        if b and b["up"] + b["dn"]:
+            res = b["up"] + b["dn"]
+            pu = b["up"] / res * 100
+            half = lambda h: f"{h[0] / sum(h) * 100:.0f}% ({sum(h)}번)" if sum(h) else "사례 없음"   # noqa: E731
+            ref.append(f"<div class=plab><span class=tu>▲ +{x:g}% 먼저 {pu:.0f}%</span><span class=td>{100 - pu:.0f}% -{x:g}% 먼저 ▼</span></div>"
+                       f"<div class=pbar role=img aria-label='위로 먼저 {pu:.0f}%'><i class=u style='width:{pu:.1f}%'></i><i class=d style='width:{100 - pu:.1f}%'></i></div>"
+                       f"<div class=note>과거 {st['days']}일 {extbox.SLABEL[sess]}에서 {e(bull)} 가격이 이 위치에 들어온 {b['n']}번: "
+                       f"+{x:g}% 에 먼저 닿음 {b['up']}번, -{x:g}% 에 먼저 닿음 {b['dn']}번, 2시간 안에 둘 다 안 닿음 {b['none']}번. "
+                       f"위로 먼저 간 비율: 앞 기간 {half(b['old'])} · 뒤 기간 {half(b['new'])} · {e(adv.get('why', ''))}</div>")
+            be = 50 + st["cost"] / (2 * x) * 100
+            ref.append(f"<div class=note>±{x:g}% 로 사고팔아 이익이 나려면 맞힐 확률이 {be:.0f}% 를 넘어야 합니다 (수수료·호가 차이 왕복 약 {st['cost']:.1f}%).</div>")
     by = ((st or {}).get("by") or {}).get(show)
     if by:
-        out.append(f"<h3>{extbox.SLABEL[show]} 위치별 과거 결과 (±{x:g}%) · 오른쪽 두 칸은 그 종목을 샀다면 수수료 뺀 1회 평균</h3><table>"
+        ref.append(f"<h3>{extbox.SLABEL[show]} 위치별 (±{x:g}%) · 오른쪽 두 칸은 그 종목을 샀다면 수수료 뺀 1회 평균</h3><table>"
                    f"<tr><th>위치</th><th class=r>▲ 먼저</th><th class=r>사례</th><th class=r>{e(bull)}</th><th class=r>{e(bear)}</th></tr>")
         for z in extbox.ZONES:
             b = by.get(z)
-            if not b:
+            res = (b["up"] + b["dn"]) if b else 0
+            if not res:
                 continue
-            res = b["up"] + b["dn"]
             cur = sess == show and adv.get("zone") == z
-            out.append(f"<tr{' class=cur' if cur else ''}><td>{'● ' if cur else ''}{extbox.ZSHORT[z]}</td>"
+            ref.append(f"<tr{' class=cur' if cur else ''}><td>{'● ' if cur else ''}{extbox.ZSHORT[z]}</td>"
                        f"<td class=r>{b['up'] / res * 100:.0f}%</td><td class=r>{res}</td>"
-                       f"<td class=r>{b['ev_up']:+.1f}%</td><td class=r>{b['ev_dn']:+.1f}%</td></tr>" if res else "")
-        out.append("</table>")
+                       f"<td class=r>{b['ev_up']:+.1f}%</td><td class=r>{b['ev_dn']:+.1f}%</td></tr>")
+        ref.append("</table>")
+    xs = "".join(f"<button data-x='{v:g}'{' class=on' if v == x else ''}>±{v:g}%</button>" for v in extbox.X_CHOICES)
+    out.append(f"<details id=ref><summary>참고: 위·아래 어느 쪽에 먼저 닿았나 (±폭 확률)</summary>"
+               f"<div class=seg style='margin-top:10px'><span class=mutt>폭</span>{xs}</div>{''.join(ref)}</details>")
     if st:
         out.append(f"<div class=note>과거 자료 {st['since']} ~ {st['until']} (야후 5분봉, 6시간마다 갱신) · 앞·뒤 기간은 {st['split']} 기준 · "
                    f"사례는 그 위치에 새로 들어온 순간만 셈 · {e(bear)} 는 {e(bull)} 반대 방향으로 같은 비율 움직인다고 보고 계산 · "
                    f"수수료 편도 {cfg.fee_pct}% + 호가 차이 편도 {extbox.SLIP_PCT}% 가정</div>")
     else:
-        out.append("<div class=note>과거 자료를 아직 받지 못했습니다. 서버가 야후 금융에서 받는 중이며, 받으면 확률이 표시됩니다.</div>")
+        out.append("<div class=note>과거 자료를 아직 받지 못했습니다. 서버가 야후 금융에서 받는 중이며, 받으면 과거 결과가 표시됩니다.</div>")
+    return "".join(out)
+
+
+def _ext_box_part(adv: dict, cfg, head: str) -> str:
+    """박스 매매 권장: SOXL 이 박스 하단이면 SOXL, 상단이면 SOXS. 매수·매도 목표·손절가."""
+    e = html.escape
+    bull, bear = cfg.bull, cfg.bear
+    usd = lambda v: f"${v:,.2f}"   # noqa: E731
+    z, rec, last = adv["zone"], adv.get("rec"), adv["last"]
+    hi, lo = adv["hi"], adv["lo"]
+    sig_s = hi - extbox.ZONE * (hi - lo)
+    lvb, lvs = adv["bull_lv"], adv.get("bear_lv")
+    if rec == "bull":
+        title, vc = f"{bull} 매수 권장", "vu"
+    elif rec == "bear":
+        title, vc = f"{bear} 매수 권장", "vd"
+    elif z == "mid":
+        title, vc = "기다리기 (박스 가운데)", ""
+    else:
+        title, vc = "쉬기 (박스를 벗어남, 새 박스를 기다림)", ""
+    out = [f"<div class=sub>{e(head)}</div><div class='big2 {'tu' if vc == 'vu' else 'td' if vc == 'vd' else ''}'>{e(title)}</div>"
+           f"<div class=sub>{e(bull)} {usd(last)} · {extbox.ZLABEL[z]} · 박스 {usd(lo)} ~ {usd(hi)} (폭 {adv['width']:.1f}%)</div>"]
+    rows = []
+
+    def row(sym, lv, px, strong):
+        g, l_ = (lv["target"] / px - 1) * 100, (lv["stop"] / px - 1) * 100
+        nm = f"<b>{e(sym)}</b>" if strong else e(sym)
+        rows.append(f"<tr><td>{nm}<br><small class=mutt>지금 {usd(px)}</small></td><td class=r>{usd(lv['buy_max'])} 이하</td>"
+                    f"<td class='r tu'>{usd(lv['target'])}<br><small>{g:+.1f}%</small></td>"
+                    f"<td class='r td'>{usd(lv['stop'])}<br><small>{l_:+.1f}%</small></td></tr>")
+    if rec == "bull":
+        row(bull, lvb, last, True)
+    elif rec == "bear" and lvs:
+        row(bear, lvs, adv["bear_last"], True)
+    elif z == "mid":
+        row(bull, lvb, last, False)
+        if lvs and adv.get("bear_last"):
+            row(bear, lvs, adv["bear_last"], False)
+    if rows:
+        out.append("<table class=plan><tr><th>종목</th><th class=r>매수가</th><th class=r>매도 목표</th><th class=r>손절</th></tr>"
+                   + "".join(rows) + "</table>")
+    if z == "mid":
+        out.append(f"<div class=note>{e(bull)} 가 <b>{usd(lvb['buy_max'])} 이하</b>로 내려오면 {e(bull)} 매수, "
+                   f"<b>{usd(sig_s)} 이상</b>으로 오르면 {e(bear)} 매수 차례입니다.</div>")
+    elif z in ("above", "below"):
+        out.append(f"<div class=note>{e(bull)} 가 박스 {'위' if z == 'above' else '아래'}로 나가 박스 매매를 쉽니다. "
+                   "직전 60분으로 박스를 계속 다시 그리므로, 가격이 자리 잡으면 새 박스가 생깁니다.</div>")
+    if adv.get("rec_thin"):
+        out.append(f"<div class='note warnt'>박스 폭이 좁아 목표까지 {adv['rec_gain']:+.1f}% 뿐이라, 수수료·호가 차이(왕복 약 0.7%)를 빼면 남는 게 거의 없습니다.</div>")
+    bb = adv.get("bbox") or {}
+    shown = ["bottom"] if rec == "bull" else ["top"] if rec == "bear" else ["bottom", "top"] if z == "mid" else []
+    for k in shown:
+        b = bb.get(k)
+        if not b:
+            continue
+        who = bull if k == "bottom" else bear
+        oldnew = " · ".join(f"{n_} {v:+.2f}%" for n_, v in (("앞 기간", b["old"]), ("뒤 기간", b["new"])) if v is not None)
+        out.append(f"<div class='note{' warnt' if b['avg'] < 0 else ''}'>과거 {adv['stats']['days'] if adv.get('stats') else '?'}일 "
+                   f"{extbox.SLABEL[adv['session']]}에 이렇게 {e(who)} 매수했다면 {b['n']}번: 목표 도달 {b['win'] / b['n'] * 100:.0f}% · "
+                   f"손절 {b['loss'] / b['n'] * 100:.0f}% · 2시간 안에 둘 다 안 닿음 {b['none'] / b['n'] * 100:.0f}% · "
+                   f"1회 평균 {b['avg']:+.2f}% (수수료·호가 차이 뺀 값; {oldnew})</div>")
+    if any(bb.get(k) and bb[k]["avg"] < 0 for k in shown):
+        out.append("<div class='note warnt'>시간외에서는 경계를 뚫고 계속 가는 경우가 많아, 지금까지 이 박스 매매는 평균적으로 손해였습니다. 금액을 작게 하세요.</div>")
     return "".join(out)
 
 
 EXT_JS = r"""
 (()=>{let x='1';try{x=localStorage.getItem('extx')||'1'}catch(e){}
-const set=v=>{x=v;window.chartQ='&x='+v;document.querySelectorAll('button[data-x]').forEach(b=>b.classList.toggle('on',b.dataset.x==v))};
-set(x);window.onChart=D=>{if(D&&D.advice_html!=null)document.getElementById('adv').innerHTML=D.advice_html};
-document.querySelectorAll('button[data-x]').forEach(b=>b.addEventListener('click',()=>{set(b.dataset.x);try{localStorage.setItem('extx',x)}catch(e){}if(window.chartReload)window.chartReload()}))})();
+window.chartQ='&x='+x;
+window.onChart=D=>{if(!D||D.advice_html==null)return;const c=document.getElementById('adv'),o=c.querySelector('#ref');const open=o&&o.open;c.innerHTML=D.advice_html;const n=c.querySelector('#ref');if(n&&open)n.open=true};
+document.addEventListener('click',ev=>{const b=ev.target.closest('button[data-x]');if(!b)return;x=b.dataset.x;window.chartQ='&x='+x;try{localStorage.setItem('extx',x)}catch(e){}if(window.chartReload)window.chartReload()})})();
 """
 
 
@@ -530,24 +580,25 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
         nxt = extbox.next_session(now)
         o = nxt[1].astimezone(KST) if nxt else None
         dot, label = "", f"다음 {extbox.SLABEL[nxt[0]]} {'월화수목금토일'[o.weekday()]} {o:%H:%M}" if nxt else "닫힘"
-    xs = "".join(f"<button data-x='{v:g}'>±{v:g}%</button>" for v in extbox.X_CHOICES)
     return ("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             "<meta http-equiv=refresh content=600><meta name=referrer content=no-referrer><title>autostock 시간외</title>"
             f"<style>{CSS}</style><main><header><h1>{e(cfg.bull)} / {e(cfg.bear)} 시간외 직접 매매</h1>"
             f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>{_nav(token, 'ext', cfg.modes)}</nav>"
             "<div class='card note'>이 탭은 주문하지 않습니다. 프리마켓(한국시간 18:00~23:30)·애프터마켓(06:00~10:00, 서머타임은 1시간 빠름)에 "
-            f"{e(cfg.bull)} 의 직전 60분 박스와, 과거에 같은 위치에서 어느 쪽으로 먼저 움직였는지를 보여 줍니다. 주문은 한국투자증권 앱에서 직접 하세요.</div>"
-            f"<h2>지금 판단 (10초마다 갱신)</h2><div class=seg><span class=mutt>목표·손절 폭</span>{xs}</div>"
+            f"{e(cfg.bull)}·{e(cfg.bear)} 의 직전 60분 박스를 그리고, {e(cfg.bull)} 가 박스 아래쪽이면 {e(cfg.bull)}, 위쪽이면 {e(cfg.bear)} 매수를 권하며 "
+            "매수·매도·손절가를 알려 줍니다. 주문은 한국투자증권 앱에서 직접 하세요.</div>"
+            "<h2>지금 판단 (10초마다 갱신)</h2>"
             "<section class=card id=adv><div class=note>불러오는 중…</div></section>"
             "<h2>가격 차트 (1분봉)</h2><section class=card><div class=seg>"
             + "".join(f"<button data-sym='{e(s_)}'{' class=on' if s_ == cfg.bull else ''}>{e(s_)}</button>" for s_ in (cfg.bull, cfg.bear))
             + "</div><div class=spans>"
             + "".join(f"<button data-span='{v}'>{t}</button>" for v, t in ((60, "1시간"), (120, "2시간"), (240, "4시간"), (0, "이번 시간대")))
-            + "</div><div class=legend><span><i class='lg-line rng'></i>박스 (SOXL 차트)</span>"
-              "<span><i class='lg-line tkp'></i>목표</span><span><i class='lg-line stp'></i>손절</span></div>"
+            + "</div><div class=legend><span><i class='lg-line rng'></i>박스 (직전 60분)</span>"
+              f"<span><i class='lg-band bl'></i>{e(cfg.bull)} 매수 구간</span><span><i class='lg-band bs'></i>{e(cfg.bear)} 매수 구간</span>"
+              "<span><i class='lg-line tkp'></i>매도 목표</span><span><i class='lg-line stp'></i>손절</span></div>"
               f"<div class=chartwrap><div id=chart data-mode='ext' data-sym='{e(cfg.bull)}'></div><div id=tip></div></div>"
               "<div id=cmsg class=note>불러오는 중…</div></section>"
-              f"<footer>{now:%m-%d %H:%M:%S} 기준 · 목표·손절선은 확률이 더 높은 쪽 종목 차트에만 그립니다 · "
+              f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
               f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
 

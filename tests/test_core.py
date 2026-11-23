@@ -1086,26 +1086,38 @@ def test_ext_tab_chart_card_and_page(tmp_path, monkeypatch):
     t0 = now.replace(second=0) - timedelta(minutes=65)
     store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 100, 101, 99, 100, 1) for i in range(65)]
                 + [Bar(now.replace(second=0), 100, 100, 99.1, 99.2, 1)])
-    store.merge("SOXS", [Bar(now.replace(second=0), 20, 20, 20, 20, 1)])
+    store.merge("SOXS", [Bar(t0 + timedelta(minutes=i), 20, 20.4, 19.6, 20, 1) for i in range(65)]
+                + [Bar(now.replace(second=0), 20, 20.2, 20, 20.15, 1)])
     monkeypatch.setattr(market_hours, "now_et", lambda: now)
     monkeypatch.setattr(webdata, "market", lambda c: None)
     d = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)
     adv = d.pop("advice")
-    assert adv["zone"] == "bottom" and adv["side"] == "up" and d["range"] == [99, 101]
-    assert [x["l"] for x in d["lines"]] == ["박스 상단 (직전 60분 고가)", "박스 하단 (직전 60분 저가)", "목표 +1%", "손절 -1%"]
-    assert d["lines"][2]["v"] == pytest.approx(99.2 * 1.01)
+    assert adv["zone"] == "bottom" and adv["rec"] == "bull" and d["range"] == [99, 101]
+    v = {x["l"]: x["v"] for x in d["lines"]}
+    assert v["이 아래면 SOXL 매수"] == 99.4 and v["이 위면 SOXS 매수"] == 100.6
+    assert v["매도 목표"] == 100.6 and v["손절"] == 98.8                                   # 박스 80% 지점 / 경계 밖 10%
+    assert d["bands"] == [{"lo": 99, "hi": 99.4, "k": "bl"}, {"lo": 100.6, "hi": 101, "k": "bs"}]
     s = webdata.ext_chart(cfg, "SOXS", 120, store, 1.0)
-    assert s["lines"] == [] and s["range"] is None                                         # SOXS 차트에는 박스 없음
+    assert s["range"] == [19.6, 20.4] and "매도 목표" not in {x["l"] for x in s["lines"]}   # 권장 종목 차트에만 목표선
     html_ = web.ext_card(adv, cfg)
-    assert "박스 하단 구간" in html_ and "확률이 더 높은 쪽: SOXL 매수" in html_ and "$100.19" in html_
-    assert "맞힐 확률이 85%" in html_
+    assert "SOXL 매수 권장" in html_ and "$99.40 이하" in html_ and "$100.60" in html_ and "$98.80" in html_
+    assert "이렇게 SOXL 매수했다면 40번: 목표 도달 0%" in html_ and "참고: 위·아래" in html_
     page = web.render_ext(cfg, "tok", now.astimezone(web.KST))
     assert "시간외 직접 매매" in page and "data-mode='ext'" in page and "애프터마켓" in page
     assert "mode=ext" in web.render(cfg, "paper", "tok")                                   # 다른 탭에서도 이동 가능
+    # SOXL 이 박스 상단 → SOXS 매수 권장, 가격은 SOXS 자기 박스 기준
+    store.merge("SOXL", [Bar(now.replace(second=0), 100, 100.9, 100.7, 100.8, 1)])
+    store.merge("SOXS", [Bar(now.replace(second=0), 19.7, 19.7, 19.65, 19.66, 1)])
+    adv = webdata.ext_chart(cfg, "SOXS", 120, store, 1.0)["advice"]
+    assert adv["zone"] == "top" and adv["rec"] == "bear"
+    html_ = web.ext_card(adv, cfg)
+    assert "SOXS 매수 권장" in html_ and "$19.76 이하" in html_ and "$20.24" in html_ and "$19.52" in html_
+    lines = {x["l"] for x in webdata.ext_chart(cfg, "SOXS", 120, store, 1.0)["lines"]}
+    assert {"매도 목표", "손절", "SOXS 매수 구간 (이 아래)"} <= lines
     monkeypatch.setattr(extbox, "yahoo_1m", lambda sym: [])                               # 야후도 새 봉이 없을 때
     monkeypatch.setattr(market_hours, "now_et", lambda: now + timedelta(minutes=10))       # 시세가 멈추면 판단 안 함
     adv = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)["advice"]
-    assert "side" not in adv and "멈춰" in web.ext_card(adv, cfg)
+    assert "rec" not in adv and "멈춰" in web.ext_card(adv, cfg)
 
 
 def test_ext_tab_falls_back_to_yahoo_bars(tmp_path, monkeypatch):
