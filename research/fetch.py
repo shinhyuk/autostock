@@ -1,7 +1,7 @@
 """Yahoo 1분봉(최근 30일, 7일씩)과 5분봉(60일)을 받아 data/ 에 JSON 으로 저장."""
 import json, sys, time, urllib.request, os
 OUT = sys.argv[1]
-SYMS = ["SOXL", "SOXS", "NVDA", "SOXX", "QQQ"]
+SYMS = sys.argv[2].split(",") if len(sys.argv) > 2 else ["SOXL", "SOXS", "NVDA", "SOXX", "QQQ"]
 UA = {"User-Agent": "Mozilla/5.0"}
 
 def get(url):
