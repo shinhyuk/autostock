@@ -140,6 +140,20 @@ class KISMarket:
             raise KISError(f"{symbol} 현재가 없음: {o}")
         return Quote(symbol, last, _num(o.get("base")))
 
+    def book(self, symbol: str) -> tuple[float, float] | None:
+        """(매수1호가, 매도1호가). 조회가 안 되면 None — 호출부는 현재가 기준으로 주문한다."""
+        try:
+            j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/inquire-asking-price", "HHDFS76200100",
+                            {"AUTH": "", "EXCD": _excd(symbol), "SYMB": symbol})
+            o = j.get("output2") or {}
+            if isinstance(o, list):
+                o = o[0] if o else {}
+            bid, ask = _num(o.get("pbid1")), _num(o.get("pask1"))
+            return (bid, ask) if bid > 0 and ask >= bid else None
+        except (KISError, requests.RequestException) as e:
+            log.warning("호가 조회 실패: %s", e)
+            return None
+
     def bars(self, symbol: str, n: int = 120) -> list[Bar]:
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice",
                         "HHDFS76950200",
@@ -162,12 +176,14 @@ class KISMarket:
 
 class KISBroker:
     def __init__(self, client: KISClient, account_no: str, product: str = "01",
-                 limit_slip_pct: float = 0.3, fill_timeout: float = 20.0, day_slip_pct: float = 0.5):
+                 limit_slip_pct: float = 0.3, fill_timeout: float = 20.0, day_slip_pct: float = 0.5,
+                 book=None):
         if len(account_no) != 8:
             raise ValueError("KIS_ACCOUNT_NO는 계좌번호 앞 8자리")
         self.c, self.cano, self.prdt = client, account_no, product
         self.slip, self.timeout, self.day_slip = limit_slip_pct / 100, fill_timeout, day_slip_pct / 100
         self.v = "V" if client.env == "demo" else "T"
+        self.book = book             # 호가 조회 함수(없어도 됨)
 
     def position(self, symbol: str) -> Position | None:
         j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-balance", self.v + "TTS3012R",
@@ -256,11 +272,24 @@ class KISBroker:
             log.warning("체결가 조회 실패, 지정가로 대체: %s", e)
         return None
 
+    def _limit(self, side: str, symbol: str, ref: float) -> float:
+        """즉시 체결을 노리는 지정가. 현재가에 여유를 주되, 호가가 그보다 멀면 호가까지 따라간다(상한 있음).
+        거래가 뜸한 시간대에는 현재가(마지막 체결가)와 실제 호가가 크게 벌어져 있기 때문."""
+        day = _is_day()
+        slip, cap = (self.day_slip, 0.015) if day else (self.slip, 0.008)
+        bk = self.book(symbol) if self.book else None
+        if side == "buy":
+            px = ref * (1 + slip)
+            if bk:
+                px = min(max(px, bk[1]), ref * (1 + cap))
+        else:
+            px = ref * (1 - slip)
+            if bk:
+                px = max(min(px, bk[0]), ref * (1 - cap))
+        return round(px, 2)
+
     def buy(self, symbol: str, qty: int, ref_price: float) -> Fill | None:
-        return self._order("buy", symbol, qty, round(ref_price * (1 + self._slip()), 2))
+        return self._order("buy", symbol, qty, self._limit("buy", symbol, ref_price))
 
     def sell(self, symbol: str, qty: int, ref_price: float) -> Fill | None:
-        return self._order("sell", symbol, qty, round(ref_price * (1 - self._slip()), 2))
-
-    def _slip(self) -> float:        # 주간거래는 호가 간격이 넓어 지정가 여유를 더 준다
-        return self.day_slip if _is_day() else self.slip
+        return self._order("sell", symbol, qty, self._limit("sell", symbol, ref_price))

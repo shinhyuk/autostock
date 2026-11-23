@@ -217,6 +217,8 @@ class FakeHTTP:
                 self.qty, self.pending = self.qty + self.pending, 0
             rows = [{"ovrs_pdno": "SOXL", "ovrs_cblc_qty": str(self.qty), "pchs_avg_pric": "30.15"}] if self.qty else []
             return self._resp({"output1": rows})
+        if name == "inquire-asking-price":
+            return self._resp({"output2": {}})
         if name == "inquire-ccnl":
             return self._resp({"output": [{"odno": "77", "ft_ccld_unpr3": "30.05"}]})
         raise AssertionError(name)
@@ -444,3 +446,14 @@ def test_day_session_has_separate_day_state_and_order_test(rig, monkeypatch):
     e.tick()
     assert e.st.date == "2026-01-05D"
     assert os.path.exists(e._ok_file("live", "day")) and e.st.open   # 주간거래는 따로 테스트 후 진입
+
+
+def test_kis_limit_follows_the_book_within_a_cap(kis):
+    c, b = kis("real")
+    b.book = lambda s: (29.90, 30.20)                                # 호가가 현재가 여유(30.09)보다 멀다
+    assert b._limit("buy", "SOXL", 30.0) == 30.20 and b._limit("sell", "SOXL", 30.0) == 29.90
+    b.book = lambda s: (28.0, 32.0)                                  # 너무 벌어지면 상한(0.8%)까지만
+    assert b._limit("buy", "SOXL", 30.0) == 30.24 and b._limit("sell", "SOXL", 30.0) == 29.76
+    b.book = lambda s: None
+    assert b._limit("buy", "SOXL", 30.0) == 30.09
+    assert KISMarket(c).book("SOXL") is None                         # 응답에 호가가 없으면 None

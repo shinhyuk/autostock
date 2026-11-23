@@ -155,7 +155,8 @@ def main() -> int:
             broker.restore(t.symbol, t.qty, t.entry_price)
     else:
         c = need
-        broker = KISBroker(md if c.env == md.env else client(c), c.account_no, c.account_product)
+        broker = KISBroker(md if c.env == md.env else client(c), c.account_no, c.account_product,
+                           book=market.book)
         if a.order_test:
             from .market_hours import is_open, now_et
             if not is_open(now_et()):
