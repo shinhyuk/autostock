@@ -985,24 +985,22 @@ def test_ledger_compounds_and_resets_on_capital_change(rig):
     assert e3.ledger["realized_usd"] == 0                            # 시작 자금이 바뀌면 새로 시작
 
 
-def test_chart_maps_soxl_bounds_onto_soxs(tmp_path, monkeypatch):
+def test_chart_shows_bounds_on_soxl_only(tmp_path, monkeypatch):
     from autostock import market_hours, webdata
     store = webdata.BarStore(str(tmp_path / "b.json"))
     d0 = datetime.now(ET) - timedelta(days=1)
     while d0.weekday() >= 5:
         d0 -= timedelta(days=1)
     t0 = d0.replace(hour=9, minute=30, second=0, microsecond=0)
-    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 40, 40, 40, 40, 1) for i in range(5)])
-    store.merge("SOXS", [Bar(t0 + timedelta(minutes=i), 20, 20, 20, 20, 1) for i in range(5)])
+    for s_ in ("SOXL", "SOXS"):
+        store.merge(s_, [Bar(t0 + timedelta(minutes=i), 40, 40, 40, 40, 1) for i in range(5)])
     monkeypatch.setattr(market_hours, "now_et", lambda: t0 + timedelta(minutes=6))
     monkeypatch.setattr(webdata, "market", lambda cfg: None)
-    live = {"orb": {"hh": 42.0, "ll": 38.0, "symbol": "SOXL", "box": [38.8, 41.2]}}
+    live = {"orb": {"hh": 42.0, "ll": 38.0, "symbol": "SOXL", "box": [38.8, 41.2], "noise": [30.0, 50.0]}}
     d = webdata.chart(Settings(), "paper", "SOXS", 0, store, None, live, [])
-    v = {x["l"].split(" (")[0]: x["v"] for x in d["lines"]}
-    assert v["범위 하단"] == 19.0 and v["범위 상단"] == 21.0         # SOXL +5% → SOXS -5%
-    assert d["range"] == [19.0, 21.0] and "환산" in d["note"]
-    assert any("SOXS 매수 구간 (이 아래)" in x["l"] and x["v"] == 19.4 for x in d["lines"])
-
+    assert d["lines"] == [] and d["range"] is None
+    d = webdata.chart(Settings(), "paper", "SOXL", 0, store, None, live, [])
+    assert [x["k"] for x in d["lines"]] == ["rng", "rng", "box", "box"]              # 노이즈 선 없음
 
 def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
     from autostock import market_hours, webdata
@@ -1024,4 +1022,4 @@ def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
     v = {x["l"]: x["v"] for x in d["lines"]}
     assert d["range"] == [39.8, 40.4] and v["범위 상단"] == 40.4 and v["범위 하단"] == 39.8
     assert "박스 SOXL 매수 구간 (이 아래)" in v
-    assert v["노이즈 상단"] == 40.8 and v["노이즈 하단"] == 39.2                # 시그마 2%
+    assert not any("노이즈" in k for k in v)

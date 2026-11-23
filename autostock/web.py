@@ -293,7 +293,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                "<span><i class='lg-line vwap'></i>VWAP</span>"
                + ("<span><i class='lg-line rng'></i>개장 범위</span>" if cfg.strategy == "orb" else "")
                + ("<span><i class='lg-line bx'></i>박스 매수 구간</span>" if cfg.box else "")
-               + ("<span><i class='lg-line nz'></i>노이즈 영역</span>" if cfg.noise else "")
+
                + ("<span><i class='lg-line stp'></i>손절</span><span><i class='lg-line tkp'></i>익절</span>" if o else "")
                + f"</div><div class=chartwrap><div id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></div><div id=tip></div></div>"
                "<div id=cmsg class=note>불러오는 중…</div></section>")
