@@ -46,7 +46,7 @@ class Decision(BaseModel):
         description="BUY=symbol 신규 진입, SELL=현재 포지션 전량 청산, HOLD=아무것도 안 함")
     symbol: str = Field(description="BUY일 때 매수할 종목. 그 외에는 빈 문자열")
     confidence: float = Field(description="0~1 사이 확신도")
-    size_pct: float = Field(description="BUY일 때 운용자금 대비 투입 비중(%) 10~100")
+    size_pct: float = Field(description="BUY일 때 운용자금 대비 투입 비중(%) 50~100. 운용자금이 작으므로 기본 100")
     stop_loss_pct: float = Field(description="진입가 대비 손절폭(%) 양수")
     take_profit_pct: float = Field(description="진입가 대비 익절폭(%) 양수")
     reason: str = Field(description="판단 근거 한두 문장 (한국어)")
