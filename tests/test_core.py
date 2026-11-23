@@ -477,3 +477,27 @@ def test_account_requirement_rejection_halts_session(rig):
     assert e.st.halted == "계좌 요건 미충족으로 주문 거절" and e.st.test_attempts == 1
     step(e, m, 5)
     assert e.st.test_attempts == 1 and not brain.snaps               # 같은 세션에서는 더 두드리지 않음
+
+
+def test_single_symbol_long_only_mode(monkeypatch, rig):
+    from autostock import config
+    from autostock.brokers import kis as k
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+    monkeypatch.setenv("BULL_SYMBOL", "nvda")
+    monkeypatch.setenv("BEAR_SYMBOL", "NONE")
+    c = config.load()
+    assert c.symbols == ("NVDA",) and "NVDA" not in c.context and "SOXX" in c.context
+    assert k.EXCD_ORDER["NVDA"] == "NASD" and k.EXCD_ORDER["SOXL"] == "AMEX" and k.EXCD_ORDER["TSM"] == "NYSE"
+    b = ClaudeBrain(c, client=SimpleNamespace())
+    assert "NVDA" in b.system and "매수만 가능" in b.system and "{" not in b.system
+
+    e, m, brain = rig(dec(symbol="NVDA", stop=1.0), bull="NVDA", bear="", capital_krw=400_000)
+    m.px["NVDA"] = 130.0
+    e.tick()
+    assert e.st.open.symbol == "NVDA" and e.st.open.qty == 2          # $285 / $130
+    assert list(brain.snaps[0]["market"]) == ["NVDA"]
+    e2, m2, _ = rig(dec(symbol="NVDA"), bull="NVDA", bear="", capital_krw=170_000,
+                    data_dir=e.cfg.data_dir + "/b")                  # 17만원으로는 1주도 못 삼
+    m2.px["NVDA"] = 130.0
+    e2.tick()
+    assert e2.st.open is None and "수량 0" in e2.recent_decisions[-1]["rejected"]

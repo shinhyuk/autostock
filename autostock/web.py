@@ -206,7 +206,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
 
     out = [f"<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
            f"<meta http-equiv=refresh content=120><meta name=referrer content=no-referrer><title>autostock</title>"
-           f"<style>{CSS}</style><main><header><h1>{e(cfg.bull)} / {e(cfg.bear)} 자동매매</h1>"
+           f"<style>{CSS}</style><main><header><h1>{e(' / '.join(cfg.symbols))} 자동매매</h1>"
            f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>"]
     for m, name in MODES.items():
         out.append(f"<a{' class=on' if m == mode else ''} href='/?k={e(token)}&mode={m}'>{name}{' ●' if m in cfg.modes else ''}</a>")

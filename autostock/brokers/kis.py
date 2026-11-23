@@ -28,7 +28,15 @@ BASE = {
 }
 # SOXL/SOXS는 NYSE Arca 상장 → 시세 코드 AMS, 주문 코드 AMEX
 EXCD_QUOTE = {"SOXL": "AMS", "SOXS": "AMS", "TSM": "NYS"}     # 표에 없으면 나스닥(NAS)
-EXCD_ORDER = {"SOXL": "AMEX", "SOXS": "AMEX"}
+_ORDER_CODE = {"NAS": "NASD", "NYS": "NYSE", "AMS": "AMEX"}
+
+
+class _OrderCodes(dict):
+    def __missing__(self, symbol: str) -> str:
+        return _ORDER_CODE[EXCD_QUOTE.get(symbol, "NAS")]
+
+
+EXCD_ORDER = _OrderCodes()
 EXCD_DAY = {"NAS": "BAQ", "NYS": "BAY", "AMS": "BAA"}           # 주간거래 시세 코드
 
 

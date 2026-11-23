@@ -74,8 +74,8 @@ class Settings:
     data_dir: str = "data"
 
     @property
-    def symbols(self) -> tuple[str, str]:
-        return (self.bull, self.bear)
+    def symbols(self) -> tuple[str, ...]:
+        return tuple(s for s in (self.bull, self.bear) if s)
 
     @property
     def capital_usd(self) -> float:
@@ -126,11 +126,14 @@ def load() -> Settings:
         flatten_before_close_min=_i("FLATTEN_BEFORE_CLOSE_MIN", 5),
         fee_pct=_f("FEE_PCT", 0.25),
         tick_sec=_i("TICK_SEC", 10),
+        bull=_s("BULL_SYMBOL", "SOXL").upper(),
+        bear="" if _s("BEAR_SYMBOL", "SOXS").upper() in ("NONE", "-") else _s("BEAR_SYMBOL", "SOXS").upper(),
         trail_atr_mult=_f("TRAIL_ATR_MULT", 2.5),
         trail_min_pct=_f("TRAIL_MIN_PCT", 0.6),
         surge_pct=_f("SURGE_PCT", 1.0),
         sessions=tuple(x.strip() for x in _s("SESSIONS", "regular").split(",")
                        if x.strip() in ("regular", "day", "pre")) or ("regular",),
         context=tuple(x.strip().upper() for x in _s("CONTEXT_SYMBOLS", "NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ").split(",")
-                      if x.strip()),
+                      if x.strip() and x.strip().upper() not in (_s("BULL_SYMBOL", "SOXL").upper(),
+                                                                 _s("BEAR_SYMBOL", "SOXS").upper())),
     )

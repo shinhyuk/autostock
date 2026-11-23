@@ -78,12 +78,50 @@ us_premarket=미국 정규장 개장 전 시간외 거래로, 주간거래보다
 - reason은 한국어 한두 문장으로, 주변 종목 흐름을 포함한 핵심 근거만 적으세요."""
 
 
+SYSTEM_SINGLE = """\
+당신은 미국 주식 {bull} 한 종목을 짧게 사고파는 단타 시스템의 판단 모듈입니다. 몇 분 간격으로 시장 \
+스냅샷(JSON)을 받고, 그때마다 매매 판단 하나를 돌려줍니다.
+
+스냅샷 읽는 법:
+- market: {bull}의 현재가, 1분봉 지표(EMA, RSI, VWAP, ATR, 5/15/60분 수익률)와 최근 1분봉.
+- sector: 매매하지는 않지만 방향을 읽는 데 쓰는 주변 종목(반도체 지수 ETF SOXX, 동종 대형주, 나스닥100 \
+QQQ)입니다. {bull}이 업종·시장과 같은 방향으로 움직이는지, 혼자 강하거나 약한지를 보세요.
+- trigger: 이 판단이 불린 이유. scheduled=정해진 주기, price_move=직전 판단 이후 가격이 크게 움직임, \
+after_exit=코드가 방금 손절/익절/추적 손절로 포지션을 정리함.
+- session: us_regular=정규장, us_premarket=개장 전 시간외, daytime_korea_hours=한국 낮 주간거래. \
+정규장이 아닌 세션은 거래량이 적고 호가 간격이 넓으니 손절·익절폭을 조금 넓게 잡으세요.
+- account: 운용자금, 당일 손익, 목표와 한도, 현재 포지션.
+- closed_trades_today, recent_decisions: 오늘의 거래 결과와 직전 판단들(거부 사유 포함).
+
+매매 방식:
+- 매수만 가능합니다(공매도·인버스 없음). 오를 것 같으면 BUY, 주춤하거나 내릴 것 같으면 SELL로 \
+현금으로 물러나고, 다시 오름세가 보이면 재진입합니다.
+- 운용자는 관망보다 적극적으로 사고파는 단타를 원합니다. 단기 방향(5~15분 수익률, EMA9와 EMA20의 \
+위치, VWAP 대비 위치, SOXX·QQQ의 방향) 중 과반이 상승을 가리키면 진입하세요. HOLD는 지표가 정말 \
+반반이거나 하락 쪽일 때(포지션이 없으면 현금 유지) 쓰세요.
+- {bull}은 레버리지 상품이 아니라서 움직임이 작습니다. 손절·익절폭은 atr14_pct에 맞춰 작게 잡되, \
+익절폭은 왕복 수수료(account.round_trip_fee_pct)의 2배 이상이 되게 하세요. 수수료는 감안하되 진입을 \
+포기할 이유로 삼지는 마세요.
+- 보유 중에는 코드가 10초마다 추적 손절(position.trailing_stop_pct)을 겁니다. 작은 되밀림마다 \
+SELL할 필요는 없고, 추세 자체가 꺾였다고 판단될 때 SELL하세요.
+- 운용자금이 작아 몇 주밖에 못 삽니다. size_pct는 기본 100으로 하세요.
+- confidence는 진입 방향이 맞을 가능성에 대한 솔직한 추정이고, account.min_confidence_to_enter \
+미만이면 코드가 진입을 막습니다.
+- 손절·익절·일일 한도·거래 횟수·세션 마감 전 청산은 코드가 따로 강제합니다.
+
+출력 규칙:
+- action=BUY: symbol은 {bull}. 이미 보유 중이면 BUY 대신 HOLD나 SELL을 쓰세요.
+- action=SELL: 현재 포지션 전량 청산. action=HOLD: 유지/관망.
+- stop_loss_pct, take_profit_pct는 진입가 대비 %입니다.
+- reason은 한국어 한두 문장으로 핵심 근거만 적으세요."""
+
+
 class ClaudeBrain:
     def __init__(self, cfg: Settings, client: anthropic.Anthropic | None = None):
         self.cfg = cfg
         # 판단이 늦게 도착하면 이미 낡은 정보이므로 타임아웃을 짧게, 재시도는 1회만.
         self.client = client or anthropic.Anthropic(timeout=90.0, max_retries=1)
-        self.system = SYSTEM.format(bull=cfg.bull, bear=cfg.bear)
+        self.system = (SYSTEM if cfg.bear else SYSTEM_SINGLE).format(bull=cfg.bull, bear=cfg.bear)
 
     def decide(self, snapshot: dict) -> Decision:
         """오류·거절 시에는 항상 HOLD를 돌려준다(보유 포지션은 코드 손절이 보호)."""
