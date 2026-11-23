@@ -4,7 +4,8 @@ import sys, statistics, itertools
 sys.argv = [sys.argv[0], sys.argv[1]] + sys.argv[2:]
 sys.path.insert(0, sys.argv[0].rsplit("/", 1)[0])
 import multi
-from multi import build, st, CAP, FEE, SLIP, PAIRS
+import multi
+from multi import build, st, CAP, SLIP, PAIRS
 
 
 def conv(side, refL, stopL, takeL, ent):
@@ -38,7 +39,7 @@ def run(days, P):
                     ex = c
                 if ex is not None:
                     px = ex * (1 - SLIP)
-                    net = (px - ent) * qty - FEE * (px + ent) * qty
+                    net = (px - ent) * qty - multi.FEE * (px + ent) * qty
                     pnl += net; trades.append((kind, net)); pos = None
                 i += 1
                 continue
@@ -53,14 +54,17 @@ def run(days, P):
                 if ok and i + 1 < len(L):
                     side = "L" if sg > 0 else "S"
                     ent = (L if side == "L" else S)[i + 1][0] * (1 + SLIP)
-                    qty = int(CAP / (ent * (1 + FEE)))
+                    qty = int(CAP / (ent * (1 + multi.FEE)))
                     refL = L[i + 1][0]
                     if o_["stop"] == "mid":
                         stopL = mid
                     else:
                         stopL = refL * (1 - o_["sl"] / 100) if side == "L" else refL * (1 + o_["sl"] / 100)
                     takeL = refL * (1 + o_["tp"] / 100) if side == "L" else refL * (1 - o_["tp"] / 100)
-                    pos = ("orb", side, qty, ent) + conv(side, refL, stopL, takeL, ent) + (i + 1,); norb += 1
+                    sp, tp_ = conv(side, refL, stopL, takeL, ent)
+                    if P.get("risk"):                          # 손절까지 잃는 돈이 자본의 risk% 가 되게 수량 조절
+                        qty = min(qty, int(CAP * P["risk"] / 100 / max(ent - sp, 1e-9)))
+                    pos = ("orb", side, qty, ent, sp, tp_, i + 1); norb += 1
                     i += 2; continue
             # 박스권 진입: 아직 범위를 벗어난 적 없고, 경계 근처에서 되돌아오는 봉
             if b_ and not broke and nbox < b_["maxtr"] and i <= b_.get("until", 999) and w / mid * 100 >= b_.get("wmin", 0):
@@ -72,12 +76,15 @@ def run(days, P):
                     side = "S"
                 if side and i + 1 < len(L):
                     ent = (L if side == "L" else S)[i + 1][0] * (1 + SLIP)
-                    qty = int(CAP / (ent * (1 + FEE)))
+                    qty = int(CAP / (ent * (1 + multi.FEE)))
                     if side == "L":
                         stopL, takeL = ll - b_["s"] * w, ll + b_["t"] * w
                     else:
                         stopL, takeL = hh + b_["s"] * w, hh - b_["t"] * w
-                    pos = ("box", side, qty, ent) + conv(side, L[i + 1][0], stopL, takeL, ent) + (i + 1,); nbox += 1
+                    sp, tp_ = conv(side, L[i + 1][0], stopL, takeL, ent)
+                    if P.get("risk"):
+                        qty = min(qty, int(CAP * P["risk"] / 100 / max(ent - sp, 1e-9)))
+                    pos = ("box", side, qty, ent, sp, tp_, i + 1); nbox += 1
                     i += 2; continue
             i += 1
         res.append((day["date"], pnl, trades))

@@ -3,12 +3,17 @@ import sys, json, os, datetime, zoneinfo, itertools, statistics
 ET = zoneinfo.ZoneInfo("America/New_York")
 D = sys.argv[1]
 FEE, SLIP, CAP = 0.0025, 0.0003, 10_000_000 / 1400
+TF, MINBARS = "1m", 300
 _c = {}
+
+
+def FEE_():
+    return FEE
 
 
 def load(s):
     if s not in _c:
-        p = f"{D}/{s}_1m.json"
+        p = f"{D}/{s}_{TF}.json"
         _c[s] = {t: (o, h, l, c, v) for t, o, h, l, c, v in json.load(open(p))} if os.path.exists(p) else None
     return _c[s]
 
@@ -25,7 +30,7 @@ def build(bull, bear, peers):
             days.setdefault(dt.date(), []).append(t)
     out = []
     for d, ts in days.items():
-        if len(ts) < 300:
+        if len(ts) < MINBARS:
             continue
         def fill(src):
             r, last = [], None
@@ -70,7 +75,7 @@ def run(days, p):
                 pos = (side, qty, ent, max(peak, h), stop, take)
                 if ex is not None:
                     px = ex * (1 - SLIP)
-                    net = (px - ent) * qty - FEE * (px + ent) * qty
+                    net = (px - ent) * qty - FEE_() * (px + ent) * qty
                     pnl += net; trades.append(net); pos = None
                 i += 1
                 continue
