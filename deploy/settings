@@ -61,13 +61,12 @@ DEMO__CAPITAL_KRW=1000000
 DEMO__DAILY_TARGET_KRW=100000
 DEMO__DAILY_MAX_LOSS_KRW=100000
 
-# 가상매매: 1000만원 가정, 24시간
-#  - 정규장: 모의투자와 같은 방식 — 돌파(진입 마감 60분, 추적 손절 없음, 손절은 범위 중간값) + 범위 안 박스권,
+# 가상매매: 1000만원 가정, 정규장만 (정규장 밖 Claude 실험은 비용 때문에 중단)
+#  - 모의투자와 같은 방식 — 돌파(진입 마감 60분, 추적 손절 없음, 손절은 범위 중간값) + 범위 안 박스권,
 #    최근 5일 평균 변동폭 8% 미만이면 쉼, 손절 시 자본 3%만 잃도록 수량 조절 (research/README.md)
-#  - 주간거래·프리마켓·애프터마켓: Claude 직접 판단 (실험. 백테스트에서 이 시간대에 통한 규칙이 없었음)
 PAPER__STRATEGY=orb
-PAPER__EXT_STRATEGY=ai
-PAPER__SESSIONS=regular,pre,post,day
+PAPER__EXT_STRATEGY=orb
+PAPER__SESSIONS=regular
 PAPER__BULL_SYMBOL=SOXL
 PAPER__BEAR_SYMBOL=SOXS
 PAPER__CONTEXT_SYMBOLS=NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ
