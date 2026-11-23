@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime
 
-from . import config, market_hours
+from . import config, extbox, market_hours
 
 log = logging.getLogger("web")
 _kis_lock = threading.Lock()          # 페이지 요청과 백그라운드 수집이 KIS 클라이언트를 같이 쓰므로 직렬화
@@ -223,8 +223,13 @@ def collector(store: BarStore, stop: threading.Event) -> None:
             cfgs = [config.load(m) for m in cfg.modes]
             market_hours.ENABLED = tuple(sorted({x for c in cfgs for x in c.sessions}))
             syms = sorted({s for c in cfgs for s in c.symbols})
+            now = market_hours.now_et()
+            ext = extbox.session(now) is not None          # 시간외 탭: 봇이 쉬어도 프리·애프터 시세를 모은다
+            if ext:
+                p = config.load("paper")
+                syms = sorted(set(syms) | {p.bull, p.bear} - {""})
             mk = market(cfg)
-            if mk and (market_hours.is_open(market_hours.now_et()) or not any(store.data.get(s) for s in syms)):
+            if mk and (ext or market_hours.is_open(now) or not any(store.data.get(s) for s in syms)):
                 for s in syms:
                     if not _kis_lock.acquire(timeout=20):
                         continue
@@ -334,3 +339,58 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
                       {"v": orb["box"][0], "k": "box", "l": f"박스 {cfg.bull} 매수 구간 (이 아래)"}]
     return {"sym": sym, "bars": bars, "vwap": [vwap.get(b[0]) for b in bars], "marks": marks, "lines": lines,
             "range": rng, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note}
+
+
+_yahoo_at: dict = {}
+
+
+def ext_hist_path(cfg) -> str:
+    return os.path.join(cfg.data_dir, f"ext_hist_{cfg.bull}.json")
+
+
+def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
+    """시간외 탭 차트: SOXL 에 직전 60분 박스, 확률이 높은 쪽 종목에 목표·손절선. 'advice' 는 화면 카드용."""
+    bull, bear = cfg.bull, cfg.bear
+    if sym not in (bull, bear):
+        return {"error": "알 수 없는 종목"}
+    if x not in extbox.X_CHOICES:
+        x = extbox.X_CHOICES[0]
+    now = market_hours.now_et()
+    mk = market(cfg)
+    if mk and _kis_lock.acquire(timeout=2):
+        try:
+            for s in (bull, bear):
+                store.merge(s, mk.bars(s, 120))
+        except Exception as e:
+            log.info("시간외 1분봉 조회 실패: %s", e)
+        finally:
+            _kis_lock.release()
+    sess = extbox.session(now)
+    t = now.timestamp()
+    note = None
+    if sess and not store.get(bull, t - 180):          # 증권사 분봉에 시간외가 없으면 야후 1분봉으로 채운다
+        for s in (bull, bear):
+            if t - _yahoo_at.get(s, 0) >= 60:
+                _yahoo_at[s] = t
+                try:
+                    store.merge(s, extbox.yahoo_1m(s))
+                except Exception as e:
+                    log.info("야후 1분봉 실패 %s: %s", s, e)
+        note = "시세: 야후 (증권사 시간외 분봉이 비어 있음)"
+    since = t - span * 60 if span > 0 else (sess[1].timestamp() if sess else t - 8 * 3600)
+    bars = store.get(sym, since)
+    sb = store.get(bear, t - 15 * 60)
+    adv = extbox.advice(store.get(bull, t - (extbox.BOX_MIN + 5) * 60), sb[-1][4] if sb else None, now,
+                        ext_hist_path(cfg), x, cfg.fee_pct)
+    lines, rng = [], None
+    if adv.get("hi") and sym == bull:
+        rng = [adv["lo"], adv["hi"]]
+        lines += [{"v": round(adv["hi"], 4), "k": "rng", "l": "박스 상단 (직전 60분 고가)"},
+                  {"v": round(adv["lo"], 4), "k": "rng", "l": "박스 하단 (직전 60분 저가)"}]
+    side = adv.get("side")
+    plan = (adv.get("plan") or {}).get("bull" if side == "up" else "bear") if side else None
+    if plan and sym == (bull if side == "up" else bear):
+        lines += [{"v": round(plan[1], 4), "k": "take", "l": f"목표 +{x:g}%"},
+                  {"v": round(plan[2], 4), "k": "stop", "l": f"손절 -{x:g}%"}]
+    return {"sym": sym, "bars": bars, "vwap": [None] * len(bars), "marks": [], "lines": lines, "range": rng,
+            "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}

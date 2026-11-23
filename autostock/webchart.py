@@ -8,7 +8,8 @@ const hm=t=>new Date(t).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-dig
 const usd=v=>'$'+(Math.abs(v)<100?v.toFixed(2):v.toFixed(2)),won=v=>Math.round(v).toLocaleString('ko-KR')+'원';
 const tip=document.getElementById('tip'),msg=document.getElementById('cmsg');
 const LC={entry:'var(--mut)',stop:'var(--dn)',take:'var(--up)',trail:'var(--warn)',rng:'var(--warn)',box:'var(--mut)',noise:'var(--noise)'};
-async function load(){try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=${M}&sym=${sym}&span=${span}`);D=await r.json()}catch(e){D={error:'연결 실패'}}draw()}
+async function load(){try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=${M}&sym=${sym}&span=${span}${window.chartQ||''}`);D=await r.json()}catch(e){D={error:'연결 실패'}}if(window.onChart)window.onChart(D);draw()}
+window.chartReload=load;
 function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  if(b.length<2){msg.textContent=(D&&D.error)?'차트를 불러오지 못했습니다: '+D.error:'표시할 시세가 아직 없습니다 (봇이 1분봉을 모으는 중)';tip.style.display='none';return}
  const n=b.length,W=box.clientWidth,H=320,pl=4,pr=58,pt=10,ph=220,vt=pt+ph+8,vh=50,pb=22,pw=W-pl-pr,step=pw/n;

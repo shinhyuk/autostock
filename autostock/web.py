@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
-from . import config, market_hours
+from . import config, extbox, market_hours
 
 MODES = {"paper": "가상매매", "kis-demo": "모의투자", "live": "실계좌"}
 KST = ZoneInfo("Asia/Seoul")
@@ -31,7 +31,7 @@ CSS = """
 main{max-width:720px;margin:0 auto;padding:14px 14px 40px}
 header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:2px 0 12px}
 h1{font-size:17px;margin:0}h2{font-size:13px;color:var(--mut);margin:24px 2px 8px;font-weight:600;letter-spacing:.02em}
-nav{display:flex;gap:6px;margin-bottom:12px}nav a{flex:1;text-align:center;padding:8px 6px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--mut);text-decoration:none;font-size:14px}
+nav{display:flex;gap:6px;margin-bottom:12px}nav a{flex:1;text-align:center;padding:8px 2px;white-space:nowrap;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--mut);text-decoration:none;font-size:13.5px}
 nav a.on{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--up)}
@@ -66,6 +66,12 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .lg-line{width:16px;height:0;border-top:2px solid}.lg-line.vwap{border-color:var(--vwap)}.lg-line.rng{border-top-style:dashed;border-color:var(--warn)}
 .lg-line.bx{border-top-style:dotted;border-color:var(--mut)}.lg-line.nz{border-top-style:dashed;border-color:var(--noise)}
 .lg-line.stp{border-top-style:dashed;border-color:var(--dn)}.lg-line.tkp{border-top-style:dashed;border-color:var(--up)}
+.big2{font-size:26px;font-weight:800;line-height:1.25;margin:2px 0}.sub{font-size:14px;color:var(--mut);font-variant-numeric:tabular-nums}
+.plab{display:flex;justify-content:space-between;gap:8px;margin-top:14px;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.pbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:4px 0 2px;background:var(--track)}.pbar i{display:block}.pbar .u{background:var(--up)}.pbar .d{background:var(--dn)}
+.verdict{margin-top:14px;padding:12px;border-radius:10px;border:1.5px solid var(--line)}.verdict.vu{border-color:var(--up)}.verdict.vd{border-color:var(--dn)}.verdict b{display:block;font-size:16px;margin-bottom:2px}.verdict.vu b{color:var(--up)}.verdict.vd b{color:var(--dn)}
+table.plan{margin-top:10px}table.plan td,table.plan th{padding:7px 4px}
+tr.cur td{font-weight:700}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
 .tu{color:var(--up)}.td{color:var(--dn)}.mutt{color:var(--mut)}.warnt{color:var(--warn)}.pad{padding:0 4px}
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
 dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:12px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
@@ -106,6 +112,12 @@ def _next_open(cfg, now: datetime) -> str:
         return "?"
     o = o.astimezone(KST)
     return f"{'월화수목금토일'[o.weekday()]}요일 {o:%H:%M}"
+
+
+def _nav(token: str, mode: str, running) -> str:
+    e = html.escape
+    tabs = [(m, name + (" ●" if m in running else "")) for m, name in MODES.items()] + [("ext", "시간외")]
+    return "".join(f"<a{' class=on' if m == mode else ''} href='/?k={e(token)}&mode={m}'>{e(n)}</a>" for m, n in tabs)
 
 
 def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
@@ -151,9 +163,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
            f"<meta http-equiv=refresh content=120><meta name=referrer content=no-referrer><title>autostock</title>"
            f"<style>{CSS}</style><main><header><h1>{e(' / '.join(cfg.symbols))} 자동매매</h1>"
            f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>"]
-    for m, name in MODES.items():
-        out.append(f"<a{' class=on' if m == mode else ''} href='/?k={e(token)}&mode={m}'>{name}{' ●' if m in cfg.modes else ''}</a>")
-    out.append("</nav>")
+    out.append(_nav(token, mode, cfg.modes) + "</nav>")
     if not running:
         links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
         out.append(f"<div class='card note'>이 탭({MODES[mode]})은 지금 실행 중이 아니라 지난 기록만 보입니다. 현재 실행 중: {links}</div>")
@@ -414,6 +424,128 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     return "".join(out)
 
 
+def ext_card(adv: dict, cfg) -> str:
+    """시간외 탭의 '지금 판단' 카드 (10초마다 /data 로 다시 받아 바꿔 끼운다)."""
+    e = html.escape
+    x, st, bull, bear = adv["x"], adv.get("stats"), cfg.bull, cfg.bear
+    usd = lambda v: f"${v:,.2f}"   # noqa: E731
+    sess, out = adv.get("session"), []
+    if not sess:
+        nxt = adv.get("next")
+        when = ""
+        if nxt:
+            o = nxt[1].astimezone(KST)
+            when = f"다음 {extbox.SLABEL[nxt[0]]}: 한국시간 {'월화수목금토일'[o.weekday()]}요일 {o:%H:%M}"
+        out.append(f"<div class=big2>지금은 프리·애프터 시간이 아닙니다</div><div class=sub>{e(when)}</div>")
+        show = nxt[0] if nxt else "pre"
+    else:
+        show = sess
+        head = f"{extbox.SLABEL[sess]} · 한국시간 {adv['close'].astimezone(KST):%H:%M} 종료"
+        if adv.get("age_min", 0) > 5:
+            out.append(f"<div class=sub>{e(head)}</div><div class=big2>시세가 {adv['age_min']:.0f}분째 멈춰 있습니다</div>"
+                       "<div class=sub>거래가 없거나 시세를 받지 못하고 있어 판단하지 않습니다"
+                       f"{' · 마지막 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
+        elif "zone" not in adv:
+            out.append(f"<div class=sub>{e(head)}</div><div class=big2>박스 만드는 중</div>"
+                       "<div class=sub>직전 60분 시세가 45분 넘게 쌓이면 박스를 그립니다"
+                       f"{' · 현재 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
+        else:
+            out.append(f"<div class=sub>{e(head)} · {e(bull)} 위치</div><div class=big2>{extbox.ZLABEL[adv['zone']]}</div>"
+                       f"<div class=sub>현재 {usd(adv['last'])} · 박스 {usd(adv['lo'])} ~ {usd(adv['hi'])} (폭 {adv['width']:.1f}%, 직전 60분)</div>")
+            b = adv.get("b")
+            if b and b["up"] + b["dn"]:
+                res = b["up"] + b["dn"]
+                pu = b["up"] / res * 100
+                half = lambda h: f"{h[0] / sum(h) * 100:.0f}% ({sum(h)}번)" if sum(h) else "사례 없음"   # noqa: E731
+                out.append(f"<div class=plab><span class=tu>▲ +{x:g}% 먼저 {pu:.0f}%</span><span class=td>{100 - pu:.0f}% -{x:g}% 먼저 ▼</span></div>"
+                           f"<div class=pbar role=img aria-label='위로 먼저 {pu:.0f}%'><i class=u style='width:{pu:.1f}%'></i><i class=d style='width:{100 - pu:.1f}%'></i></div>"
+                           f"<div class=note>과거 {st['days']}일 {extbox.SLABEL[sess]}에서 {e(bull)} 가격이 이 위치에 들어온 {b['n']}번: "
+                           f"+{x:g}% 에 먼저 닿음 {b['up']}번, -{x:g}% 에 먼저 닿음 {b['dn']}번, 2시간 안에 둘 다 안 닿음 {b['none']}번. "
+                           f"위로 먼저 간 비율: 앞 기간 {half(b['old'])} · 뒤 기간 {half(b['new'])}</div>")
+            side = adv.get("side")
+            title = (f"확률이 더 높은 쪽: {bull} 매수 (위로)" if side == "up" else
+                     f"확률이 더 높은 쪽: {bear} 매수 (아래로)" if side == "dn" else "관망 (뚜렷한 방향 없음)")
+            vc = {"up": "vu", "dn": "vd"}.get(side, "")
+            out.append(f"<div class='verdict {vc}'><b>{e(title)}</b>{e(adv.get('why', ''))}</div>")
+            plan = adv.get("plan") or {}
+            rows = []
+            for key, sym, sd in (("bull", bull, "up"), ("bear", bear, "dn")):
+                if key in plan:
+                    a, t, s_ = plan[key]
+                    nm = f"<b>{e(sym)} 매수</b>" if side == sd else f"{e(sym)} 매수"
+                    rows.append(f"<tr><td>{nm}</td><td class=r>{usd(a)}</td><td class='r tu'>{usd(t)}</td><td class='r td'>{usd(s_)}</td></tr>")
+            if rows:
+                out.append(f"<table class=plan><tr><th>주문 참고</th><th class=r>지금</th><th class=r>목표 +{x:g}%</th>"
+                           f"<th class=r>손절 -{x:g}%</th></tr>" + "".join(rows) + "</table>")
+            if b:
+                be = 50 + st["cost"] / (2 * x) * 100
+                out.append(f"<div class='note{' warnt' if max(b['ev_up'], b['ev_dn']) < 0 else ''}'>수수료·호가 차이(왕복 약 {st['cost']:.1f}%)를 빼면 "
+                           f"과거 같은 상황에서 {e(bull)} 매수는 1회 평균 {b['ev_up']:+.2f}%, {e(bear)} 매수는 {b['ev_dn']:+.2f}% 였습니다. "
+                           f"±{x:g}% 로 사고팔아 이익이 나려면 맞힐 확률이 {be:.0f}% 를 넘어야 합니다.</div>")
+    by = ((st or {}).get("by") or {}).get(show)
+    if by:
+        out.append(f"<h3>{extbox.SLABEL[show]} 위치별 과거 결과 (±{x:g}%) · 오른쪽 두 칸은 그 종목을 샀다면 수수료 뺀 1회 평균</h3><table>"
+                   f"<tr><th>위치</th><th class=r>▲ 먼저</th><th class=r>사례</th><th class=r>{e(bull)}</th><th class=r>{e(bear)}</th></tr>")
+        for z in extbox.ZONES:
+            b = by.get(z)
+            if not b:
+                continue
+            res = b["up"] + b["dn"]
+            cur = sess == show and adv.get("zone") == z
+            out.append(f"<tr{' class=cur' if cur else ''}><td>{'● ' if cur else ''}{extbox.ZSHORT[z]}</td>"
+                       f"<td class=r>{b['up'] / res * 100:.0f}%</td><td class=r>{res}</td>"
+                       f"<td class=r>{b['ev_up']:+.1f}%</td><td class=r>{b['ev_dn']:+.1f}%</td></tr>" if res else "")
+        out.append("</table>")
+    if st:
+        out.append(f"<div class=note>과거 자료 {st['since']} ~ {st['until']} (야후 5분봉, 6시간마다 갱신) · 앞·뒤 기간은 {st['split']} 기준 · "
+                   f"사례는 그 위치에 새로 들어온 순간만 셈 · {e(bear)} 는 {e(bull)} 반대 방향으로 같은 비율 움직인다고 보고 계산 · "
+                   f"수수료 편도 {cfg.fee_pct}% + 호가 차이 편도 {extbox.SLIP_PCT}% 가정</div>")
+    else:
+        out.append("<div class=note>과거 자료를 아직 받지 못했습니다. 서버가 야후 금융에서 받는 중이며, 받으면 확률이 표시됩니다.</div>")
+    return "".join(out)
+
+
+EXT_JS = r"""
+(()=>{let x='1';try{x=localStorage.getItem('extx')||'1'}catch(e){}
+const set=v=>{x=v;window.chartQ='&x='+v;document.querySelectorAll('button[data-x]').forEach(b=>b.classList.toggle('on',b.dataset.x==v))};
+set(x);window.onChart=D=>{if(D&&D.advice_html!=null)document.getElementById('adv').innerHTML=D.advice_html};
+document.querySelectorAll('button[data-x]').forEach(b=>b.addEventListener('click',()=>{set(b.dataset.x);try{localStorage.setItem('extx',x)}catch(e){}if(window.chartReload)window.chartReload()}))})();
+"""
+
+
+def render_ext(cfg, token: str, now: datetime | None = None) -> str:
+    """시간외(프리·애프터) 직접 매매 탭. 봇은 주문하지 않고, 박스와 과거 확률만 보여 준다."""
+    e = html.escape
+    now = now or datetime.now(KST)
+    sess = extbox.session(now)
+    if sess:
+        dot, label = "ok", f"{extbox.SLABEL[sess[0]]} · {sess[2].astimezone(KST):%H:%M} 종료"
+    else:
+        nxt = extbox.next_session(now)
+        o = nxt[1].astimezone(KST) if nxt else None
+        dot, label = "", f"다음 {extbox.SLABEL[nxt[0]]} {'월화수목금토일'[o.weekday()]} {o:%H:%M}" if nxt else "닫힘"
+    xs = "".join(f"<button data-x='{v:g}'>±{v:g}%</button>" for v in extbox.X_CHOICES)
+    return ("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<meta http-equiv=refresh content=600><meta name=referrer content=no-referrer><title>autostock 시간외</title>"
+            f"<style>{CSS}</style><main><header><h1>{e(cfg.bull)} / {e(cfg.bear)} 시간외 직접 매매</h1>"
+            f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>{_nav(token, 'ext', cfg.modes)}</nav>"
+            "<div class='card note'>이 탭은 주문하지 않습니다. 프리마켓(한국시간 18:00~23:30)·애프터마켓(06:00~10:00, 서머타임은 1시간 빠름)에 "
+            f"{e(cfg.bull)} 의 직전 60분 박스와, 과거에 같은 위치에서 어느 쪽으로 먼저 움직였는지를 보여 줍니다. 주문은 한국투자증권 앱에서 직접 하세요.</div>"
+            f"<h2>지금 판단 (10초마다 갱신)</h2><div class=seg><span class=mutt>목표·손절 폭</span>{xs}</div>"
+            "<section class=card id=adv><div class=note>불러오는 중…</div></section>"
+            "<h2>가격 차트 (1분봉)</h2><section class=card><div class=seg>"
+            + "".join(f"<button data-sym='{e(s_)}'{' class=on' if s_ == cfg.bull else ''}>{e(s_)}</button>" for s_ in (cfg.bull, cfg.bear))
+            + "</div><div class=spans>"
+            + "".join(f"<button data-span='{v}'>{t}</button>" for v, t in ((60, "1시간"), (120, "2시간"), (240, "4시간"), (0, "이번 시간대")))
+            + "</div><div class=legend><span><i class='lg-line rng'></i>박스 (SOXL 차트)</span>"
+              "<span><i class='lg-line tkp'></i>목표</span><span><i class='lg-line stp'></i>손절</span></div>"
+              f"<div class=chartwrap><div id=chart data-mode='ext' data-sym='{e(cfg.bull)}'></div><div id=tip></div></div>"
+              "<div id=cmsg class=note>불러오는 중…</div></section>"
+              f"<footer>{now:%m-%d %H:%M:%S} 기준 · 목표·손절선은 확률이 더 높은 쪽 종목 차트에만 그립니다 · "
+              "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
+              f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
+
+
 def _equity_svg(pts: list[float], fx: float) -> str:
     """거래마다의 누적 실현손익(원) 선 그래프."""
     W, H, pl, pr, pt, pb = 360, 140, 4, 70, 10, 18
@@ -449,10 +581,22 @@ def make_handler(token: str):
             load_dotenv(override=True)   # 실행 중에 .env 가 바뀌어도 최신 설정으로 보여준다
             cfg = config.load()
             mode = q.get("mode", [cfg.mode])[0]
-            if mode not in MODES:
+            if mode not in MODES and mode != "ext":
                 mode = cfg.mode
-            cfg = config.load(mode)      # 탭마다 그 모드의 자금·종목 설정으로 보여준다
-            if u.path == "/data":
+            cfg = config.load("paper" if mode == "ext" else mode)   # 탭마다 그 모드의 자금·종목 설정으로 보여준다
+            if mode == "ext":
+                if u.path == "/data":
+                    try:
+                        span, x = int(q.get("span", ["120"])[0]), float(q.get("x", ["1"])[0])
+                    except ValueError:
+                        span, x = 120, 1.0
+                    data = webdata.ext_chart(cfg, q.get("sym", [cfg.bull])[0], span, STORE, x)
+                    adv = data.pop("advice", None)
+                    data["advice_html"] = ext_card(adv, cfg) if adv else ""
+                    body, ctype = json.dumps(data).encode(), "application/json"
+                else:
+                    body, ctype = render_ext(cfg, token).encode(), "text/html; charset=utf-8"
+            elif u.path == "/data":
                 state, events, live = webdata.read(cfg, mode)
                 try:
                     span = int(q.get("span", ["120"])[0])
@@ -488,6 +632,9 @@ def main() -> int:
     STORE = webdata.BarStore(os.path.join(config.load().data_dir, "bars_cache.json"))
     threading.Thread(target=webdata.collector, args=(STORE, threading.Event()), daemon=True).start()
     threading.Thread(target=webdata.account_refresher, args=(threading.Event(),), daemon=True).start()
+    pc = config.load("paper")
+    threading.Thread(target=extbox.history_refresher, args=(pc.bull, webdata.ext_hist_path(pc), threading.Event()),
+                     daemon=True).start()
     print(f"결과 페이지: 포트 {port}")
     ThreadingHTTPServer(("0.0.0.0", port), make_handler(token)).serve_forever()
     return 0

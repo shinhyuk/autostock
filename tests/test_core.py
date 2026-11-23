@@ -1023,3 +1023,95 @@ def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
     assert d["range"] == [39.8, 40.4] and v["범위 상단"] == 40.4 and v["범위 하단"] == 39.8
     assert "박스 SOXL 매수 구간 (이 아래)" in v
     assert not any("노이즈" in k for k in v)
+
+
+def _ext_history(path):
+    """매일 애프터 16:00 에 박스 하단으로 내려왔다가 다음 5분에 +1% 넘게 오르는 가짜 5분봉 40일."""
+    rows, d = [], datetime(2026, 9, 1, tzinfo=ET)
+    while len({r[0] // 86400 for r in rows}) < 40:
+        if d.weekday() < 5:
+            t = d.replace(hour=15, minute=0)
+            for i in range(12):
+                rows.append([int((t + timedelta(minutes=5 * i)).timestamp()), 100, 101, 99, 100])
+            t16 = int(d.replace(hour=16).timestamp())
+            rows.append([t16, 100, 100, 99.1, 99.2])
+            rows.append([t16 + 300, 99.2, 100.3, 99.2, 100.2])
+        d += timedelta(days=1)
+    with open(path, "w") as f:
+        json.dump(rows, f)
+
+
+def test_ext_box_zone_and_history_odds(tmp_path):
+    from autostock import extbox
+    assert extbox.session(datetime(2026, 11, 23, 5, 0, tzinfo=ET))[0] == "pre"
+    assert extbox.session(datetime(2026, 11, 23, 17, 0, tzinfo=ET))[0] == "post"
+    assert extbox.session(datetime(2026, 11, 23, 12, 0, tzinfo=ET)) is None
+    assert extbox.session(datetime(2026, 11, 22, 5, 0, tzinfo=ET)) is None                 # 일요일
+    assert extbox.next_session(datetime(2026, 11, 23, 12, 0, tzinfo=ET))[0] == "post"
+    assert [extbox.zone(p, 101, 99) for p in (101.5, 100.8, 100, 99.2, 98)] == ["above", "top", "mid", "bottom", "below"]
+    t0 = int(datetime(2026, 11, 23, 16, 0, tzinfo=ET).timestamp() * 1000)
+    bars = [[t0 + i * 60000, 100, 101, 99, 100, 1] for i in range(60)] + [[t0 + 60 * 60000, 100, 102, 100, 101.8, 1]]
+    assert extbox.live_box(bars) == (101, 99)                                               # 지금 봉은 박스에서 뺌
+    assert extbox.live_box(bars[-10:]) is None                                              # 자료 부족
+    p = str(tmp_path / "h.json")
+    _ext_history(p)
+    st = extbox.stats(p, 1.0)
+    b = st["by"]["post"]["bottom"]
+    assert b["up"] == 40 and b["dn"] == 0 and st["days"] == 40
+    assert b["ev_up"] == pytest.approx(1.0 - 0.7) and b["ev_dn"] == pytest.approx(-1.0 - 0.7)
+    assert extbox.verdict(b)[0] == "up"
+    assert extbox.verdict({**b, "old": [3, 0]})[0] == ""                                   # 한쪽 기간 사례가 적으면 고르지 않음
+    assert extbox.verdict({**b, "up": 16, "dn": 14})[0] == ""                              # 비슷하면 관망
+
+
+def test_ext_tab_chart_card_and_page(tmp_path, monkeypatch):
+    from autostock import extbox, market_hours, web, webdata
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path))
+    _ext_history(webdata.ext_hist_path(cfg))
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    now = datetime(2026, 11, 23, 16, 50, 20, tzinfo=ET)
+    t0 = now.replace(second=0) - timedelta(minutes=65)
+    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 100, 101, 99, 100, 1) for i in range(65)]
+                + [Bar(now.replace(second=0), 100, 100, 99.1, 99.2, 1)])
+    store.merge("SOXS", [Bar(now.replace(second=0), 20, 20, 20, 20, 1)])
+    monkeypatch.setattr(market_hours, "now_et", lambda: now)
+    monkeypatch.setattr(webdata, "market", lambda c: None)
+    d = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)
+    adv = d.pop("advice")
+    assert adv["zone"] == "bottom" and adv["side"] == "up" and d["range"] == [99, 101]
+    assert [x["l"] for x in d["lines"]] == ["박스 상단 (직전 60분 고가)", "박스 하단 (직전 60분 저가)", "목표 +1%", "손절 -1%"]
+    assert d["lines"][2]["v"] == pytest.approx(99.2 * 1.01)
+    s = webdata.ext_chart(cfg, "SOXS", 120, store, 1.0)
+    assert s["lines"] == [] and s["range"] is None                                         # SOXS 차트에는 박스 없음
+    html_ = web.ext_card(adv, cfg)
+    assert "박스 하단 구간" in html_ and "확률이 더 높은 쪽: SOXL 매수" in html_ and "$100.19" in html_
+    assert "맞힐 확률이 85%" in html_
+    page = web.render_ext(cfg, "tok", now.astimezone(web.KST))
+    assert "시간외 직접 매매" in page and "data-mode='ext'" in page and "애프터마켓" in page
+    assert "mode=ext" in web.render(cfg, "paper", "tok")                                   # 다른 탭에서도 이동 가능
+    monkeypatch.setattr(extbox, "yahoo_1m", lambda sym: [])                               # 야후도 새 봉이 없을 때
+    monkeypatch.setattr(market_hours, "now_et", lambda: now + timedelta(minutes=10))       # 시세가 멈추면 판단 안 함
+    adv = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)["advice"]
+    assert "side" not in adv and "멈춰" in web.ext_card(adv, cfg)
+
+
+def test_ext_tab_falls_back_to_yahoo_bars(tmp_path, monkeypatch):
+    from autostock import extbox, market_hours, webdata
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path))
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    now = datetime(2026, 11, 23, 5, 30, 10, tzinfo=ET)
+    t0 = now.replace(second=0) - timedelta(minutes=70)
+    calls = []
+
+    def fake(sym):
+        calls.append(sym)
+        px = 100 if sym == "SOXL" else 20
+        return [Bar(t0 + timedelta(minutes=i), px, px + 1, px - 1, px, 1) for i in range(71)]
+    monkeypatch.setattr(extbox, "yahoo_1m", fake)
+    monkeypatch.setattr(market_hours, "now_et", lambda: now)
+    monkeypatch.setattr(webdata, "market", lambda c: None)
+    webdata._yahoo_at.clear()
+    d = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)
+    assert calls == ["SOXL", "SOXS"] and d["advice"]["zone"] == "mid" and "야후" in d["note"]
+    webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)
+    assert calls == ["SOXL", "SOXS"]                                                       # 이미 채워졌으면 다시 안 부름
