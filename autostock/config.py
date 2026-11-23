@@ -61,6 +61,8 @@ class Settings:
 
     max_stop_loss_pct: float = 2.0
     default_take_profit_pct: float = 3.0
+    take_profit_max_pct: float = 10.0   # AI 익절폭 상한 (스캘핑은 작게)
+    max_hold_min: float = 0             # 이 시간 넘게 들고 있는데 수수료 이상 못 벌었으면 청산 (0=끔)
     max_trades_per_day: int = 8
     max_consecutive_losses: int = 3
     cooldown_after_loss_min: int = 10
@@ -144,6 +146,8 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         usdkrw=_f("USDKRW", 1400),
         max_stop_loss_pct=_f("MAX_STOP_LOSS_PCT", 2.0),
         default_take_profit_pct=_f("DEFAULT_TAKE_PROFIT_PCT", 3.0),
+        take_profit_max_pct=_f("TAKE_PROFIT_MAX_PCT", 10.0),
+        max_hold_min=_f("MAX_HOLD_MIN", 0),
         max_trades_per_day=_i("MAX_TRADES_PER_DAY", 8),
         max_consecutive_losses=_i("MAX_CONSECUTIVE_LOSSES", 3),
         cooldown_after_loss_min=_i("COOLDOWN_AFTER_LOSS_MIN", 10),

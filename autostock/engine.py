@@ -56,11 +56,22 @@ class Engine:
         self.live_path = os.path.join(cfg.data_dir, f"live_{cfg.mode}.json")
         self._last_price: float | None = None
         self.st = DayState.load(self.state_path)
+        self._refresh_halt()
         self.last_decision_at: datetime | None = None
         self.recent_decisions: list[dict] = []
         self._waiting_logged = ""
         self.ref_prices: dict[str, float] = {}       # 직전 AI 판단 때의 가격 (급변 감지용)
         self.trigger = "scheduled"
+
+    def _refresh_halt(self) -> None:
+        """목표·손실 한도·연속 손실로 멈춘 상태는 현재 설정으로 다시 판단한다 (설정을 바꾸고 재시작한 경우)."""
+        h = self.st.halted
+        if h in ("일일 목표 달성", "일일 손실 한도") or h.endswith("연속 손실"):
+            new = self.risk.halt_reason(self.st)
+            if new != h:
+                log.info("중단 상태 재평가: %s → %s", h, new or "매매 재개")
+                self.st.halted = new
+                self.st.save(self.state_path)
 
     # ── 기록 ────────────────────────────────────────────────
     def _journal(self, kind: str, **data) -> None:
@@ -285,6 +296,8 @@ class Engine:
                 "round_trip_fee_pct": c.fee_pct * 2,
                 "max_stop_loss_pct": c.max_stop_loss_pct,
                 "min_confidence_to_enter": c.min_confidence,
+                "take_profit_cap_pct": min(10.0, c.take_profit_max_pct),
+                "max_hold_min": c.max_hold_min or None,
                 "position": pos,
             },
             "closed_trades_today": st.history[-6:],

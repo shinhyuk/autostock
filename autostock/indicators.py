@@ -64,7 +64,11 @@ def ret_pct(closes: list[float], minutes: int) -> float | None:
 def summarize(bars: list[Bar], since=None) -> dict:
     closes = [b.close for b in bars]
     r = lambda x: None if x is None else round(x, 3)  # noqa: E731
+    e9 = ema(closes, 9)
     return {
+        "ret_1m_pct": r(ret_pct(closes, 1)),
+        "ret_3m_pct": r(ret_pct(closes, 3)),
+        "ext_ema9_pct": r((closes[-1] / e9 - 1) * 100) if e9 else None,
         "ema9": r(ema(closes, 9)),
         "ema20": r(ema(closes, 20)),
         "rsi14": r(rsi(closes, 14)),

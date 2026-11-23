@@ -15,8 +15,9 @@ DIR=$PWD
 PY=$DIR/.venv/bin/python
 mode() { grep -E '^MODE=' .env 2>/dev/null | head -1 | cut -d= -f2 | awk '{print $1}'; }
 modes() { mode | tr ',' ' '; }
-has_position() {   # 실행 중인 모드 중 하나라도 포지션을 들고 있으면 참
+has_position() {   # 실계좌(live)가 포지션을 들고 있으면 참. 가상·모의는 재시작해도 상태 파일로 복원된다
   for m in $(modes); do
+    [[ $m == live ]] || continue
     if $PY -c 'import json,sys
 try: sys.exit(0 if json.load(open(sys.argv[1])).get("open") else 1)
 except FileNotFoundError: sys.exit(1)' "$DIR/data/state_$m.json"; then return 0; fi
@@ -39,7 +40,7 @@ sync_settings() {  # 저장소의 deploy/settings 가 바뀌었으면 서버 .en
   if has_position; then echo "보유 포지션이 있어 설정 변경을 미룹니다"; return 0; fi
   local k v
   while IFS='=' read -r k v; do
-    [[ $k =~ ^((PAPER|DEMO|LIVE)__)?(MODE|CLAUDE_MODEL|CLAUDE_EFFORT|DECISION_INTERVAL_SEC|NO_ENTRY_AFTER_OPEN_MIN|MAX_TRADES_PER_DAY|MAX_CONSECUTIVE_LOSSES|COOLDOWN_AFTER_LOSS_MIN|TRAIL_ATR_MULT|TRAIL_MIN_PCT|SURGE_PCT|SESSIONS|MIN_CONFIDENCE|BULL_SYMBOL|BEAR_SYMBOL|CONTEXT_SYMBOLS|MAX_STOP_LOSS_PCT|STYLE|ORDER_TEST_SYMBOL|ORDER_TEST_SELL|CAPITAL_KRW|DAILY_TARGET_KRW|DAILY_MAX_LOSS_KRW)$ && $v =~ ^[A-Za-z0-9_.,-]+$ ]] || continue
+    [[ $k =~ ^((PAPER|DEMO|LIVE)__)?(MODE|CLAUDE_MODEL|CLAUDE_EFFORT|DECISION_INTERVAL_SEC|NO_ENTRY_AFTER_OPEN_MIN|MAX_TRADES_PER_DAY|MAX_CONSECUTIVE_LOSSES|COOLDOWN_AFTER_LOSS_MIN|TRAIL_ATR_MULT|TRAIL_MIN_PCT|SURGE_PCT|SESSIONS|MIN_CONFIDENCE|BULL_SYMBOL|BEAR_SYMBOL|CONTEXT_SYMBOLS|MAX_STOP_LOSS_PCT|TAKE_PROFIT_MAX_PCT|MAX_HOLD_MIN|DEFAULT_TAKE_PROFIT_PCT|STYLE|ORDER_TEST_SYMBOL|ORDER_TEST_SELL|CAPITAL_KRW|DAILY_TARGET_KRW|DAILY_MAX_LOSS_KRW)$ && $v =~ ^[A-Za-z0-9_.,-]+$ ]] || continue
     if [[ $k == MODE ]]; then
       [[ $v =~ ^(paper|kis-demo|live)(,(paper|kis-demo|live))*$ ]] || continue
       set_mode "$v"

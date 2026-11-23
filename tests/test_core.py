@@ -516,8 +516,8 @@ def test_per_mode_overrides(monkeypatch):
     assert demo.symbols == ("SOXL", "SOXS") and demo.capital_krw == 1000000 and demo.decision_interval_sec == 180
     assert paper.style == "aggressive" and paper.decision_interval_sec == 60 and paper.capital_krw == 170000
     assert config.load().mode == "paper" and live.modes == ("paper", "kis-demo", "live")
-    assert "초단타 실험 모드" in ClaudeBrain(paper, client=SimpleNamespace()).system
-    assert "초단타 실험 모드" not in ClaudeBrain(demo, client=SimpleNamespace()).system
+    assert "초단타(스캘핑) 모드" in ClaudeBrain(paper, client=SimpleNamespace()).system
+    assert "초단타(스캘핑) 모드" not in ClaudeBrain(demo, client=SimpleNamespace()).system
 
 
 def test_order_test_symbol_and_rehalt_clears_when_symbol_changes(rig):
@@ -541,3 +541,58 @@ def test_order_test_can_buy_and_hold(rig):
     assert e.st.open.symbol == "INTC" and e.st.open.qty == 1 and e.st.open.entry_price == 25.0
     step(e, m, INTC=24.4)                                            # -2.4% → 기본 손절로 관리됨
     assert e.st.open is None
+
+
+def test_halt_is_reevaluated_with_new_settings(tmp_path):
+    st = DayState(date="2026-01-05", consecutive_losses=4, losses=4, realized_usd=-3.0, halted="4연속 손실")
+    st.save(str(tmp_path / "state_paper.json"))
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), max_consecutive_losses=100)
+    e = Engine(cfg, Market(datetime(2026, 1, 5, 11, 0, tzinfo=ET)), PaperBroker(), Brain())
+    assert e.st.halted == "" and DayState.load(e.state_path).halted == ""
+    st.halted, st.realized_usd = "일일 목표 달성", 80.0                # 여전히 해당되면 유지
+    st.save(str(tmp_path / "state_paper.json"))
+    e = Engine(cfg, Market(datetime(2026, 1, 5, 11, 0, tzinfo=ET)), PaperBroker(), Brain())
+    assert e.st.halted == "일일 목표 달성"
+
+
+def test_scalp_exits(rig):
+    e, m, _ = rig(dec(stop=1.0, take=3.0), take_profit_max_pct=1.2, max_hold_min=8)
+    e.tick()
+    assert e.st.open.take_pct == 1.2                                 # 익절 상한
+    step(e, m, 9)                                                    # 9분 동안 제자리
+    assert e.st.open is None and "시간 청산" in e.st.history[-1]["reason"]
+
+    r = Risk(dataclasses.replace(Settings(), fee_pct=0.25))
+    t = OpenTrade("SOXL", 10, 30.0, "2026-01-05T11:00:00-05:00", 1.0, 5.0, 0.0, 30.18, 0.3)
+    st = DayState(open=t)
+    now = datetime(2026, 1, 5, 11, 1, tzinfo=ET)
+    assert r.exit_reason(st, now, 30.08) == ""                       # 고점 +0.6%: 수수료 감안 전이라 미발동
+    t.peak_price = 30.27                                             # 고점 +0.9%
+    assert "추적 손절" in r.exit_reason(st, now, 30.17)              # 고점에서 -0.33% → 청산, 여전히 +0.57%
+
+
+def test_indicators_entry_timing_fields():
+    from autostock import indicators
+    bars = [Bar(datetime(2026, 1, 5, 10, i, tzinfo=ET), p, p, p, p, 1) for i, p in enumerate([30.0] * 20 + [30.6])]
+    s = indicators.summarize(bars)
+    assert s["ret_1m_pct"] == 2.0 and s["ext_ema9_pct"] > 1.5
+
+
+def test_kis_get_retries_after_dropped_connection(kis):
+    import requests
+    c, _ = kis()
+    real_get, n = c.http.get, {"n": 0}
+
+    def drop_once(url, **kw):
+        n["n"] += 1
+        if n["n"] == 1:
+            raise requests.ConnectionError("Remote end closed connection without response")
+        return real_get(url, **kw)
+    c.http.get = drop_once
+    fake = c.http
+    orig_session = requests.Session
+    requests.Session = lambda: fake                                  # 재연결 시 같은 가짜 서버 사용
+    try:
+        assert KISMarket(c).quote("SOXL").last == 30.10 and n["n"] == 2
+    finally:
+        requests.Session = orig_session

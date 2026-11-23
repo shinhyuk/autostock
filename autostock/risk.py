@@ -46,7 +46,8 @@ class Risk:
         """AI가 제안한 손절/익절폭을 허용 범위로 자른다."""
         c = self.cfg
         stop = min(max(d.stop_loss_pct or c.max_stop_loss_pct, 0.3), c.max_stop_loss_pct)
-        take = min(max(d.take_profit_pct or c.default_take_profit_pct, 0.5), 10.0)
+        floor = max(0.5, 2 * c.fee_pct + 0.3)                   # 왕복 수수료보다는 크게
+        take = min(max(d.take_profit_pct or c.default_take_profit_pct, floor), min(10.0, c.take_profit_max_pct))
         return stop, take
 
     def trail(self, stop_pct: float, atr_pct: float | None) -> float:
@@ -83,10 +84,17 @@ class Risk:
         if chg >= t.take_pct:
             return f"익절 {chg:.2f}%"
         if t.trail_pct and t.peak_price:
-            # 최고 수익이 추적 폭을 넘은 뒤부터 작동 → 발동 가격이 항상 진입가 이상
+            # 최고 수익이 '추적 폭 + 왕복 수수료'를 넘은 뒤부터 작동 → 발동해도 수수료 이상은 남긴다
             peak_gain = (t.peak_price / t.entry_price - 1) * 100
-            if peak_gain >= t.trail_pct and last <= t.peak_price * (1 - t.trail_pct / 100):
+            if peak_gain >= t.trail_pct + 2 * c.fee_pct and last <= t.peak_price * (1 - t.trail_pct / 100):
                 return f"추적 손절 (고점 +{peak_gain:.2f}% → 현재 {chg:+.2f}%)"
+        if c.max_hold_min:
+            try:
+                held = (now - datetime.fromisoformat(t.entry_ts)).total_seconds() / 60
+            except ValueError:
+                held = 0
+            if held >= c.max_hold_min and chg < 2 * c.fee_pct + 0.1:
+                return f"시간 청산 ({held:.0f}분 보유, {chg:+.2f}%)"
         if minutes_to_close(now) <= c.flatten_before_close_min:
             return "장 마감 전 강제 청산"
         return ""

@@ -99,7 +99,15 @@ class KISClient:
 
     def call(self, method: str, path: str, tr_id: str, payload: dict) -> dict:
         for attempt in range(1, 5):
-            j = self._call_once(method, path, tr_id, payload)
+            try:
+                j = self._call_once(method, path, tr_id, payload)
+            except (requests.ConnectionError, requests.Timeout):
+                # 조회는 다시 보내도 안전하다. 주문(POST)은 서버가 받았을 수 있으므로 재전송하지 않는다.
+                if method != "GET" or attempt == 4:
+                    raise
+                self.http = requests.Session()       # 끊긴 keep-alive 연결을 버린다
+                time.sleep(attempt)
+                continue
             # EGW00201 = 초당 거래건수 초과. 게이트웨이에서 거절된 것이라 처리되지 않았으므로 재시도해도 안전.
             if j.get("msg_cd") != "EGW00201" or attempt == 4:
                 break
