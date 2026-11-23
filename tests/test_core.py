@@ -457,3 +457,15 @@ def test_kis_limit_follows_the_book_within_a_cap(kis):
     b.book = lambda s: None
     assert b._limit("buy", "SOXL", 30.0) == 30.09
     assert KISMarket(c).book("SOXL") is None                         # 응답에 호가가 없으면 None
+
+
+def test_premarket_session(monkeypatch):
+    from autostock import market_hours as mh
+    from zoneinfo import ZoneInfo
+    K = ZoneInfo("Asia/Seoul")
+    monkeypatch.setattr(mh, "ENABLED", ("regular", "day", "pre"))
+    s = mh.current(datetime(2026, 11, 23, 18, 30, tzinfo=K))
+    assert s.name == "pre" and s.key == "2026-11-23P"
+    assert mh.current(datetime(2026, 11, 23, 23, 26, tzinfo=K)) is None      # 정규장 직전 5분은 비움
+    assert mh.current(datetime(2026, 11, 23, 23, 31, tzinfo=K)).name == "regular"
+    assert mh.current(datetime(2026, 11, 23, 17, 30, tzinfo=K)) is None

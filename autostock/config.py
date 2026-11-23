@@ -68,7 +68,7 @@ class Settings:
     # 판단 참고용 주변 종목(매매하지 않음). 앞의 context_bars 개는 분봉 추세까지 본다.
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
     context_bars: int = 2
-    sessions: tuple[str, ...] = ("regular",)   # regular(정규장), day(한국 낮 주간거래)
+    sessions: tuple[str, ...] = ("regular",)   # regular(정규장), pre(프리마켓), day(한국 낮 주간거래)
     bull: str = "SOXL"
     bear: str = "SOXS"
     data_dir: str = "data"
@@ -130,7 +130,7 @@ def load() -> Settings:
         trail_min_pct=_f("TRAIL_MIN_PCT", 0.6),
         surge_pct=_f("SURGE_PCT", 1.0),
         sessions=tuple(x.strip() for x in _s("SESSIONS", "regular").split(",")
-                       if x.strip() in ("regular", "day")) or ("regular",),
+                       if x.strip() in ("regular", "day", "pre")) or ("regular",),
         context=tuple(x.strip().upper() for x in _s("CONTEXT_SYMBOLS", "NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ").split(",")
                       if x.strip()),
     )

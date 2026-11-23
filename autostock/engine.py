@@ -112,8 +112,8 @@ class Engine:
         c = self.cfg
         sess = market_hours.current(now)
         sname = sess.name if sess else "regular"
-        if c.mode == "kis-demo" and sname == "day":
-            return False             # 모의투자 서버는 주간거래 주문을 지원하지 않는다
+        if c.mode == "kis-demo" and sname != "regular":
+            return False             # 모의투자는 정규장에서만 돌린다(주간거래·프리마켓 주문 미지원)
         if c.mode not in ("kis-demo", "live") or os.path.exists(self._ok_file(c.mode, sname)):
             return True
         if self.st.halted or minutes_since_open(now) < c.no_entry_after_open_min:
@@ -266,7 +266,7 @@ class Engine:
         return {
             "time_et": now.strftime("%Y-%m-%d %H:%M"),
             "trigger": self.trigger,
-            "session": "daytime_korea_hours" if sess and sess.name == "day" else "us_regular",
+            "session": {"day": "daytime_korea_hours", "pre": "us_premarket"}.get(sess.name if sess else "", "us_regular"),
             "minutes_since_open": round(minutes_since_open(now)),
             "minutes_to_close": round(minutes_to_close(now)),
             "market": market,

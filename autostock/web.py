@@ -243,7 +243,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     model = (live or {}).get("model") or cfg.model
     out.append(f"<footer>{now:%m-%d %H:%M:%S} 기준 · 30초마다 자동 새로고침 · ● 실행 중인 모드<br>"
                f"환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)"
-               f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}</footer></main>")
+               f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}"
+               f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>")
     return "".join(out)
 
 

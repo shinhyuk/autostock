@@ -37,6 +37,11 @@ def _is_day() -> bool:
     return bool(s and s.name == "day")
 
 
+def _extended() -> bool:
+    s = market_hours.current(market_hours.now_et())
+    return bool(s and s.name != "regular")
+
+
 def _excd(symbol: str) -> str:
     code = EXCD_QUOTE.get(symbol, "NAS")
     return EXCD_DAY[code] if _is_day() else code
@@ -275,8 +280,7 @@ class KISBroker:
     def _limit(self, side: str, symbol: str, ref: float) -> float:
         """즉시 체결을 노리는 지정가. 현재가에 여유를 주되, 호가가 그보다 멀면 호가까지 따라간다(상한 있음).
         거래가 뜸한 시간대에는 현재가(마지막 체결가)와 실제 호가가 크게 벌어져 있기 때문."""
-        day = _is_day()
-        slip, cap = (self.day_slip, 0.015) if day else (self.slip, 0.008)
+        slip, cap = (self.day_slip, 0.015) if _extended() else (self.slip, 0.008)
         bk = self.book(symbol) if self.book else None
         if side == "buy":
             px = ref * (1 + slip)
