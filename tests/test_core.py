@@ -465,3 +465,15 @@ def test_premarket_session(monkeypatch):
     assert mh.current(datetime(2026, 11, 23, 23, 26, tzinfo=K)) is None      # 정규장 직전 5분은 비움
     assert mh.current(datetime(2026, 11, 23, 23, 31, tzinfo=K)).name == "regular"
     assert mh.current(datetime(2026, 11, 23, 17, 30, tzinfo=K)) is None
+
+
+def test_account_requirement_rejection_halts_session(rig):
+    e, m, brain = rig(dec(), mode="live", modes=("live",))
+
+    def reject(*a):
+        raise RuntimeError("[APBK1681] 해당종목은 기본예탁금 충족한 계좌만 매수주문가능합니다")
+    e.broker.buy = reject
+    e.tick()
+    assert e.st.halted == "계좌 요건 미충족으로 주문 거절" and e.st.test_attempts == 1
+    step(e, m, 5)
+    assert e.st.test_attempts == 1 and not brain.snaps               # 같은 세션에서는 더 두드리지 않음

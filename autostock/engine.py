@@ -141,6 +141,10 @@ class Engine:
             with open(self._ok_file(c.mode, sname), "w") as f:
                 f.write(now.isoformat())
             log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
+        elif any("APBK16" in x for x in lines):
+            # 계좌 요건(거래 신청, 교육 이수, 기본예탁금 등) 거절은 재시도해도 같으므로 이번 세션은 멈춘다
+            st.halted = "계좌 요건 미충족으로 주문 거절"
+            log.error("계좌 요건 미충족으로 주문이 거절됨 — 이번 세션 %s 매매 중단, 다음 세션에 다시 확인", c.mode)
         else:
             if st.test_attempts >= 200:
                 st.halted = "주문 테스트 반복 실패"
