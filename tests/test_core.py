@@ -518,3 +518,16 @@ def test_per_mode_overrides(monkeypatch):
     assert config.load().mode == "paper" and live.modes == ("paper", "kis-demo", "live")
     assert "초단타 실험 모드" in ClaudeBrain(paper, client=SimpleNamespace()).system
     assert "초단타 실험 모드" not in ClaudeBrain(demo, client=SimpleNamespace()).system
+
+
+def test_order_test_symbol_and_rehalt_clears_when_symbol_changes(rig):
+    e, m, _ = rig(mode="live", modes=("live",), order_test_symbol="INTC")
+    m.px["INTC"] = 25.0
+    e.st.halted, e.st.test_symbol = "계좌 요건 미충족으로 주문 거절", "SOXL"
+    bought = []
+    orig = e.broker.buy
+    e.broker.buy = lambda s, q, p: bought.append((s, q)) or orig(s, q, p)
+    e.tick()
+    assert bought[0] == ("INTC", 1) and e.st.halted == "" and e.st.test_symbol == "INTC"
+    import os
+    assert os.path.exists(e._ok_file("live")) and e.broker.position("INTC") is None

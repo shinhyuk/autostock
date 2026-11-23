@@ -77,6 +77,7 @@ class Settings:
     # 판단 참고용 주변 종목(매매하지 않음). 앞의 context_bars 개는 분봉 추세까지 본다.
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
     context_bars: int = 2
+    order_test_symbol: str = ""         # 주문 테스트에 쓸 종목 (비우면 매매 종목)
     style: str = "normal"               # normal | aggressive(분 단위 초단타)
     sessions: tuple[str, ...] = ("regular",)   # regular(정규장), pre(프리마켓), day(한국 낮 주간거래)
     bull: str = "SOXL"
@@ -128,6 +129,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         mode=mode,
         modes=modes,
         style=_s("STYLE", "normal"),
+        order_test_symbol=_s("ORDER_TEST_SYMBOL").upper(),
         live_confirm=_s("LIVE_TRADING_CONFIRM"),
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
         effort=_s("CLAUDE_EFFORT", "medium"),

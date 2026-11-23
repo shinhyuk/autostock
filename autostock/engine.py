@@ -21,7 +21,7 @@ log = logging.getLogger("engine")
 
 def order_test(cfg: Settings, market: MarketData, broker: Broker, out=log.info) -> bool:
     """1주 매수 → 즉시 매도로 실제 주문 경로를 확인한다. 수수료와 호가 차이만큼 소액 손실이 난다."""
-    sym = cfg.bull
+    sym = cfg.order_test_symbol or cfg.bull
     if broker.position(sym):
         out(f"이미 {sym} 보유 중이라 주문 테스트를 하지 않습니다.")
         return False
@@ -136,6 +136,7 @@ class Engine:
             ok = False
         st.test_attempts += 1
         st.test_last_ts = now.isoformat()
+        st.test_symbol = c.order_test_symbol or c.bull
         self._journal("ordertest", ok=ok, session=sname, attempt=st.test_attempts, detail=" / ".join(lines))
         if ok:
             with open(self._ok_file(c.mode, sname), "w") as f:
@@ -347,6 +348,9 @@ class Engine:
                 return
         if self.st.halted in ("주문 테스트 실패", "주문 테스트 3회 실패"):   # 예전 버전이 남긴 중단 → 재시도 허용
             self.st.halted, self.st.test_last_ts = "", ""
+        if (self.st.halted == "계좌 요건 미충족으로 주문 거절"
+                and self.st.test_symbol != (self.cfg.order_test_symbol or self.cfg.bull)):
+            self.st.halted, self.st.test_last_ts = "", ""       # 테스트 종목이 바뀌었으면 다시 확인
         if self.st.halted and not self.st.open:
             return
         if not self.preflight(now):
