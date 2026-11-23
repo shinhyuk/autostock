@@ -72,6 +72,7 @@ class Settings:
     flatten_before_close_min: int = 5
     fee_pct: float = 0.25
     tick_sec: int = 10
+    hold_tick_sec: float = 3            # 보유 중에는 더 자주 가격을 본다 (급락 때 손절이 늦게 걸리지 않게)
     trail_atr_mult: float = 2.5         # 추적 손절 폭 = 1분 ATR × 이 값 (아래 범위로 제한)
     trail_min_pct: float = 0.6
     surge_pct: float = 1.0              # 직전 판단 이후 이만큼 움직이면 주기와 무관하게 AI 를 다시 부른다
@@ -175,6 +176,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         flatten_before_close_min=_i("FLATTEN_BEFORE_CLOSE_MIN", 5),
         fee_pct=_f("FEE_PCT", 0.25),
         tick_sec=_i("TICK_SEC", 10),
+        hold_tick_sec=_f("HOLD_TICK_SEC", 3),
         bull=_s("BULL_SYMBOL", "SOXL").upper(),
         bear="" if _s("BEAR_SYMBOL", "SOXS").upper() in ("NONE", "-") else _s("BEAR_SYMBOL", "SOXS").upper(),
         trail_atr_mult=_f("TRAIL_ATR_MULT", 2.5),

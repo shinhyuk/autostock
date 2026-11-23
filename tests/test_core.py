@@ -812,3 +812,17 @@ def test_activity_log_once_per_minute(orb_rig, rig):
     e2.tick()
     last = json.loads(open(e2.act_path).read().splitlines()[-1])
     assert "현금 대기" in last["msg"] and "다음 판단" in last["msg"] and "직전 판단" in last["msg"]
+
+
+def test_polls_faster_while_holding(rig):
+    e, m, _ = rig(dec(), tick_sec=10, hold_tick_sec=3)
+    waits = []
+
+    def sleep(s):
+        waits.append(s)
+        if len(waits) >= 2:
+            raise KeyboardInterrupt
+    e.sleep = sleep
+    with pytest.raises(KeyboardInterrupt):
+        e.run()
+    assert waits[0] == 3                                             # 첫 틱에서 진입 → 3초 간격

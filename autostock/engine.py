@@ -620,4 +620,4 @@ class Engine:
                 self._beat(now, "error")
                 if errors >= 30:
                     log.critical("오류가 계속됨 — 계좌를 직접 확인하세요. 보유: %s", self.st.open)
-            self.sleep(self.cfg.tick_sec)
+            self.sleep(self.cfg.hold_tick_sec if self.st.open else self.cfg.tick_sec)
