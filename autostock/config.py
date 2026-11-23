@@ -78,6 +78,7 @@ class Settings:
     context: tuple[str, ...] = ("NVDA", "SOXX", "AMD", "AVGO", "TSM", "MU", "QQQ")
     context_bars: int = 2
     order_test_symbol: str = ""         # 주문 테스트에 쓸 종목 (비우면 매매 종목)
+    order_test_sell: bool = True        # False 면 주문 테스트에서 1주를 사기만 하고 포지션으로 넘긴다
     style: str = "normal"               # normal | aggressive(분 단위 초단타)
     sessions: tuple[str, ...] = ("regular",)   # regular(정규장), pre(프리마켓), day(한국 낮 주간거래)
     bull: str = "SOXL"
@@ -130,6 +131,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         modes=modes,
         style=_s("STYLE", "normal"),
         order_test_symbol=_s("ORDER_TEST_SYMBOL").upper(),
+        order_test_sell=_s("ORDER_TEST_SELL", "true").lower() not in ("false", "0", "no"),
         live_confirm=_s("LIVE_TRADING_CONFIRM"),
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
         effort=_s("CLAUDE_EFFORT", "medium"),

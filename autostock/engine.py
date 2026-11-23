@@ -32,6 +32,9 @@ def order_test(cfg: Settings, market: MarketData, broker: Broker, out=log.info) 
         out("[FAIL] 매수가 체결되지 않아 취소됐습니다. 잔고(달러/통합증거금)와 해외주식 거래 신청을 확인하세요.")
         return False
     out(f"[OK]   매수 체결 {buy.qty}주 @ ${buy.price}")
+    if not cfg.order_test_sell:
+        out("매도는 하지 않고 보유합니다. 이후 손절·익절·AI 판단·세션 마감 청산으로 관리됩니다.")
+        return True
     for attempt in range(3):
         sell = broker.sell(sym, 1, market.quote(sym).last)
         if sell:
@@ -142,6 +145,8 @@ class Engine:
             with open(self._ok_file(c.mode, sname), "w") as f:
                 f.write(now.isoformat())
             log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
+            if not c.order_test_sell:
+                self.reconcile()     # 테스트로 산 1주를 보유 포지션으로 넘겨받는다
         elif any("APBK16" in x for x in lines):
             # 계좌 요건(거래 신청, 교육 이수, 기본예탁금 등) 거절은 재시도해도 같으므로 이번 세션은 멈춘다
             st.halted = "계좌 요건 미충족으로 주문 거절"

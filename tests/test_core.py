@@ -531,3 +531,13 @@ def test_order_test_symbol_and_rehalt_clears_when_symbol_changes(rig):
     assert bought[0] == ("INTC", 1) and e.st.halted == "" and e.st.test_symbol == "INTC"
     import os
     assert os.path.exists(e._ok_file("live")) and e.broker.position("INTC") is None
+
+
+def test_order_test_can_buy_and_hold(rig):
+    e, m, brain = rig(mode="live", modes=("live",), bull="INTC", bear="", order_test_sell=False)
+    m.px["INTC"] = 25.0
+    e.tick()
+    assert e.broker.position("INTC").qty == 1                        # 팔지 않고 보유
+    assert e.st.open.symbol == "INTC" and e.st.open.qty == 1 and e.st.open.entry_price == 25.0
+    step(e, m, INTC=24.4)                                            # -2.4% → 기본 손절로 관리됨
+    assert e.st.open is None
