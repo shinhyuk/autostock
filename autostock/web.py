@@ -193,9 +193,13 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    f"<span class=mut>{e(rng)}</span>"
                    f"<div class=note>상태: {e((orb or {}).get('status') or '-')}<br>"
                    f"범위 위로 뚫으면 {e(cfg.bull)}, 아래로 뚫으면 {e(cfg.bear or '-')} 매수 · 엔비디아·SOXX 동조 필요 · "
-                   f"손절 {cfg.orb_stop_pct}% · 익절 {cfg.orb_take_pct}% · 추적 {cfg.orb_trail_pct}% · "
-                   f"개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회<br>"
-                   f"Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영)."
+                   + ("손절 범위 중간값 · " if cfg.orb_stop_mode == "mid" else f"손절 {cfg.orb_stop_pct}% · ")
+                   + f"익절 {cfg.orb_take_pct}% · " + (f"추적 {cfg.orb_trail_pct}% · " if cfg.orb_trail_pct else "추적 손절 없음 · ")
+                   + f"개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회<br>"
+                   + (f"<b>박스권</b>: 범위 폭 {cfg.box_min_width}% 이상인 날, 범위를 벗어나기 전까지 아래 경계 근처 반등 → {e(cfg.bull)}, "
+                      f"위 경계 근처 반락 → {e(cfg.bear)} · 익절은 반대 경계의 {cfg.box_target * 100:.0f}% 지점, 손절은 경계 밖 "
+                      f"{cfg.box_stop * 100:.0f}% · 하루 {cfg.box_max}회<br>" if cfg.box else "")
+                   + "Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영)."
                    + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
                       f"Claude 가 3분마다 직접 판단하는 실험 — 백테스트에서 이 시간대에 통한 규칙이 없었습니다."
                       if cfg.ext_strategy == "ai" and len(cfg.sessions) > 1 else "")

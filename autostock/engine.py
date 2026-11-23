@@ -193,7 +193,8 @@ class Engine:
         return ok
 
     # ── 주문 ────────────────────────────────────────────────
-    def _enter(self, d: Decision, last: float, atr_pct: float | None = None, trail: float | None = None) -> None:
+    def _enter(self, d: Decision, last: float, atr_pct: float | None = None, trail: float | None = None,
+               kind: str = "") -> None:
         qty = self.risk.size(self.st, d, last)
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
@@ -205,12 +206,12 @@ class Engine:
         stop, take = self.risk.stops(d)
         trail = trail if trail is not None else self.risk.trail(stop, atr_pct)
         self.st.open = OpenTrade(d.symbol, fill.qty, fill.price, self.clock().isoformat(),
-                                 stop, take, self.risk.fee(fill.price, fill.qty), fill.price, trail)
+                                 stop, take, self.risk.fee(fill.price, fill.qty), fill.price, trail, kind)
         self.st.save(self.state_path)
         log.info("▶ 매수 %s %d주 @ $%.2f  (손절 -%.1f%% / 익절 +%.1f%% / 추적 %.1f%%)  %s",
                  d.symbol, fill.qty, fill.price, stop, take, trail, d.reason)
         self._journal("buy", symbol=d.symbol, qty=fill.qty, price=fill.price,
-                      stop_pct=stop, take_pct=take, reason=d.reason)
+                      stop_pct=stop, take_pct=take, reason=d.reason, entry_kind=kind)
 
     def _close(self, reason: str, last: float) -> bool:
         t = self.st.open
@@ -234,7 +235,7 @@ class Engine:
             else:
                 st.losses, st.consecutive_losses = st.losses + 1, st.consecutive_losses + 1
                 st.last_loss_ts, st.last_loss_symbol = self.clock().isoformat(), t.symbol
-        st.history.append({"symbol": t.symbol, "qty": fill.qty, "entry": t.entry_price,
+        st.history.append({"symbol": t.symbol, "kind": t.kind, "entry_ts": t.entry_ts, "qty": fill.qty, "entry": t.entry_price,
                            "exit": fill.price, "pnl_usd": round(pnl, 2), "reason": reason,
                            "ts": self.clock().strftime("%H:%M")})
         log.info("◀ 매도 %s %d주 @ $%.2f  손익 $%+.2f (%s)  [%s]  당일 누적 $%+.2f (%s)",
@@ -396,6 +397,8 @@ class Engine:
                 log.warning("개장 범위 봉이 부족함 (%d개)", len(rb))
                 return
             o = {"hh": max(b.high for b in rb), "ll": min(b.low for b in rb), "peers": {}}
+            o["broke"] = any(b.close > o["hh"] or b.close < o["ll"]                # 재시작 시: 이미 범위를 벗어났었는지
+                             for b in self.market.bars(c.bull, 120) if end <= b.ts < minute)
             for p in c.orb_peers:
                 try:
                     pb = [b for b in self.market.bars(p, 120) if b.ts >= sess.open]
@@ -411,20 +414,25 @@ class Engine:
         if self.st.halted:
             self.orb_status = f"종료 ({self.st.halted})"
             return
-        if since > c.orb_window_min:
-            self.orb_status = "오늘 신규 진입 마감"
-            return
-        if self.st.trades >= c.orb_max_trades:
-            self.orb_status = f"오늘 {c.orb_max_trades}회 모두 사용"
-            return
         done = [b for b in self.market.bars(c.bull, 5) if b.ts < minute]
         if not done or (now - done[-1].ts).total_seconds() > 240:
             self.orb_status = "시세 지연"
             return
-        close = done[-1].close
+        bar = done[-1]
+        close = bar.close
         sg = 1 if close > o["hh"] else -1 if close < o["ll"] else 0
-        if not sg:
-            self.orb_status = "돌파 대기"
+        if sg:
+            o["broke"] = True
+        n_orb = self._entries("orb")
+        if not sg or since > c.orb_window_min or n_orb >= c.orb_max_trades:
+            if c.box and not o["broke"]:
+                self._box_tick(now, o, bar)
+            elif since > c.orb_window_min:
+                self.orb_status = "오늘 돌파 진입 마감" + (" · 박스권 종료(범위 이탈)" if c.box and o["broke"] else "")
+            elif n_orb >= c.orb_max_trades:
+                self.orb_status = f"오늘 돌파 {c.orb_max_trades}회 모두 사용"
+            else:
+                self.orb_status = "돌파 대기" + (" · 박스권 종료(범위 이탈)" if c.box and o["broke"] else "")
             return
         side = c.bull if sg > 0 else c.bear
         if not side:                                 # 하락 쪽 종목이 없으면 상단 돌파만
@@ -440,16 +448,63 @@ class Engine:
             self.orb_status = f"{'상단' if sg > 0 else '하단'} 돌파했지만 동조 안 됨: {', '.join(lag)}"
             return
         last = self.market.quote(side).last
+        stop_pct = c.orb_stop_pct
+        if c.orb_stop_mode == "mid":                 # 범위 중간값까지의 거리(SOXL 기준 %)를 보유 종목에 적용
+            mid = (o["hh"] + o["ll"]) / 2
+            stop_pct = min(max(abs(close / mid - 1) * 100, 0.5), 6.0)
         d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
-                     stop_loss_pct=c.orb_stop_pct, take_profit_pct=c.orb_take_pct,
+                     stop_loss_pct=stop_pct, take_profit_pct=c.orb_take_pct,
                      reason=f"개장 {c.orb_minutes}분 범위(${o['ll']:.2f}~${o['hh']:.2f}) "
                             f"{'상단' if sg > 0 else '하단'} 돌파, 종가 ${close:.2f}, 동조 종목 같은 방향")
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side,
                                       "reason": d.reason})
-        self._enter(d, last, trail=c.orb_trail_pct)
+        self._enter(d, last, trail=c.orb_trail_pct, kind="orb")
         if self.st.open:
-            self.orb_status = "보유 중"
+            self.orb_status = "보유 중 (돌파)"
             self._ai_review(now)
+
+    def _entries(self, kind: str) -> int:
+        """이번 세션에 이 종류로 진입한 횟수 (부분 체결로 기록이 나뉘어도 한 번으로 센다)."""
+        seen = {h.get("entry_ts") for h in self.st.history if h.get("kind") == kind}
+        if self.st.open and self.st.open.kind == kind:
+            seen.add(self.st.open.entry_ts)
+        return len(seen)
+
+    def _box_tick(self, now: datetime, o: dict, bar) -> None:
+        """범위를 아직 벗어나지 않았을 때, 아래 경계 근처에서 반등하면 상승 종목, 위 경계 근처에서 꺾이면 하락 종목.
+        익절은 반대 경계 쪽, 손절은 경계 바깥. 범위가 좁은 날은 수수료에 먹히므로 하지 않는다."""
+        c = self.cfg
+        hh, ll = o["hh"], o["ll"]
+        w, mid = hh - ll, (hh + ll) / 2
+        width = w / mid * 100
+        if width < c.box_min_width:
+            self.orb_status = f"돌파 대기 · 범위 폭 {width:.1f}% < {c.box_min_width}% 라 박스권 안 함"
+            return
+        if self._entries("box") >= c.box_max:
+            self.orb_status = f"돌파 대기 · 박스권 {c.box_max}회 모두 사용"
+            return
+        if minutes_to_close(now) < c.no_entry_before_close_min:
+            self.orb_status = "장 마감 전 진입 금지"
+            return
+        side = None
+        if bar.low <= ll + c.box_zone * w and bar.close > bar.open and bar.close < mid:
+            side, stop_lvl, take_lvl = c.bull, ll - c.box_stop * w, ll + c.box_target * w
+        elif c.bear and bar.high >= hh - c.box_zone * w and bar.close < bar.open and bar.close > mid:
+            side, stop_lvl, take_lvl = c.bear, hh + c.box_stop * w, hh - c.box_target * w
+        if not side:
+            self.orb_status = f"돌파 대기 · 박스권 경계 대기 (아래 ${ll + c.box_zone * w:.2f} 이하 / 위 ${hh - c.box_zone * w:.2f} 이상)"
+            return
+        ref = bar.close
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
+                     stop_loss_pct=min(max(abs(stop_lvl / ref - 1) * 100, 0.3), 6.0),
+                     take_profit_pct=abs(take_lvl / ref - 1) * 100,
+                     reason=f"박스권 {'아래' if side == c.bull else '위'} 경계 ${ll if side == c.bull else hh:.2f} 근처에서 "
+                            f"{'반등' if side == c.bull else '반락'} (봉 ${bar.open:.2f}→${bar.close:.2f}), "
+                            f"목표 ${take_lvl:.2f} · 손절 ${stop_lvl:.2f} ({c.bull} 기준)")
+        self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
+        self._enter(d, self.market.quote(side).last, trail=0, kind="box")
+        if self.st.open:
+            self.orb_status = "보유 중 (박스권)"
 
     def _ai_review(self, now: datetime) -> None:
         """규칙이 방금 들어간 진입을 Claude 가 검토한다. 주문에는 반영하지 않고 기록만 한다

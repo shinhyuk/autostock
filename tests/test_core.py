@@ -826,3 +826,55 @@ def test_polls_faster_while_holding(rig):
     with pytest.raises(KeyboardInterrupt):
         e.run()
     assert waits[0] == 3                                             # 첫 틱에서 진입 → 3초 간격
+
+
+def test_box_trade_inside_range_and_mid_stop(orb_rig):
+    import json
+    # 범위 29.5~30.5 (폭 3.3%) → 박스권 최소 폭 3% 로 낮춰 시험
+    e, m, _ = orb_rig(box=True, box_min_width=3.0, box_zone=0.2, box_target=0.8, box_stop=0.1, box_max=1,
+                      orb_stop_mode="mid", max_stop_loss_pct=6)
+
+    class B:  # 아래 경계 근처에서 반등한 봉
+        def __init__(self, ts, o, h, l, c): self.ts, self.open, self.high, self.low, self.close, self.volume = ts, o, h, l, c, 1
+    real_bars = m.bars
+
+    def bars(s, n=120):
+        out = real_bars(s, n)
+        if s == "SOXL" and m.now.minute >= 51:
+            out[-1] = B(out[-1].ts, 29.55, 29.75, 29.55, 29.70)
+        return out
+    m.bars = bars
+    m.now += timedelta(minutes=1)
+    m.px["SOXL"] = 29.70
+    e.tick()
+    t = e.st.open
+    assert t.symbol == "SOXL" and t.kind == "box" and t.trail_pct == 0
+    assert abs(t.take_pct - (30.30 / 29.70 - 1) * 100) < 0.01          # 아래 경계 + 폭의 80% = 30.30
+    assert abs(t.stop_pct - (1 - 29.40 / 29.70) * 100) < 0.01          # 아래 경계 - 폭의 10% = 29.40
+    m.px["SOXL"] = 30.35
+    m.now += timedelta(seconds=10)
+    e.tick()
+    assert e.st.open is None and e.st.history[-1]["kind"] == "box" and e.st.realized_usd > 0
+    ev = [json.loads(x) for x in open(e.log_path)]
+    assert any(x.get("entry_kind") == "box" for x in ev if x["kind"] == "buy")
+    # 같은 세션 두 번째 박스권은 없음
+    m.px["SOXL"] = 29.70
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and "박스권 1회 모두 사용" in e.orb_status
+
+    # 범위 돌파: 중간값 손절
+    m.bars = real_bars
+    m.after = [30.0, 30.0, 30.0, 31.0]
+    m.px["SOXL"] = 31.0
+    m.now = m.now.replace(minute=54, second=30)
+    e.tick()
+    t = e.st.open
+    assert t.kind == "orb" and abs(t.stop_pct - (31.0 / 30.0 - 1) * 100) < 0.01 and t.trail_pct == 3.0
+
+
+def test_box_skipped_when_range_narrow_or_broken(orb_rig):
+    e, m, _ = orb_rig(box=True, box_min_width=5.0)
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and "박스권 안 함" in e.orb_status

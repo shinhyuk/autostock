@@ -89,6 +89,13 @@ class Settings:
     orb_take_pct: float = 10.0
     orb_trail_pct: float = 3.0
     orb_peers: tuple[str, ...] = ("NVDA", "SOXX")   # 돌파 방향으로 같이 움직여야 하는 종목
+    orb_stop_mode: str = "pct"          # pct(orb_stop_pct) | mid(개장 범위 중간값 — 진입가 대비 %로 바꿔 보유 종목에 적용)
+    box: bool = False                   # 범위를 아직 벗어나지 않았으면 경계 근처에서 반대로 매매(박스권)
+    box_zone: float = 0.2               # 경계에서 범위 폭의 이 비율 안쪽까지 오면 후보
+    box_target: float = 0.8             # 반대 경계 쪽으로 범위 폭의 이 비율 지점에서 익절
+    box_stop: float = 0.1               # 경계 바깥으로 범위 폭의 이 비율만큼 벗어나면 손절
+    box_max: int = 1                    # 세션당 박스권 거래 수
+    box_min_width: float = 5.0          # 범위 폭(%)이 이보다 좁은 날은 박스권 매매 안 함(수수료에 먹힘)
     order_test_symbol: str = ""         # 주문 테스트에 쓸 종목 (비우면 매매 종목)
     order_test_sell: bool = True        # False 면 주문 테스트에서 1주를 사기만 하고 포지션으로 넘긴다
     style: str = "normal"               # normal | aggressive(분 단위 초단타)
@@ -152,6 +159,13 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         orb_take_pct=_f("ORB_TAKE_PCT", 10.0),
         orb_trail_pct=_f("ORB_TRAIL_PCT", 3.0),
         orb_peers=tuple(x.strip().upper() for x in _s("ORB_PEERS", "NVDA,SOXX").split(",") if x.strip()),
+        orb_stop_mode=_s("ORB_STOP_MODE", "pct").lower(),
+        box=_s("BOX", "false").lower() in ("true", "1", "yes"),
+        box_zone=_f("BOX_ZONE", 0.2),
+        box_target=_f("BOX_TARGET", 0.8),
+        box_stop=_f("BOX_STOP", 0.1),
+        box_max=_i("BOX_MAX", 1),
+        box_min_width=_f("BOX_MIN_WIDTH", 5.0),
         order_test_sell=_s("ORDER_TEST_SELL", "true").lower() not in ("false", "0", "no"),
         live_confirm=_s("LIVE_TRADING_CONFIRM"),
         model=_s("CLAUDE_MODEL", "claude-opus-5-5"),
