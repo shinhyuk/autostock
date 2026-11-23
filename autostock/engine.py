@@ -133,9 +133,12 @@ class Engine:
             data["orb"] = {"minutes": self.cfg.orb_minutes, "hh": o.get("hh"), "ll": o.get("ll"),
                            "status": self.orb_status, "symbol": self.cfg.bull}
             c = self.cfg
-            if c.box and o.get("hh") and not o.get("broke"):
-                w, mid = o["hh"] - o["ll"], (o["hh"] + o["ll"]) / 2
-                if w / mid * 100 >= c.box_min_width:
+            if c.box and o.get("hh"):
+                off = self._box_off(o)
+                if off:
+                    data["orb"]["box_off"] = off            # 차트가 매수 시도 구간을 그리지 않도록
+                else:
+                    w = o["hh"] - o["ll"]
                     data["orb"]["box"] = [round(o["ll"] + c.box_zone * w, 4), round(o["hh"] - c.box_zone * w, 4)]
             if o.get("noise_lvls"):
                 data["orb"]["noise"] = [round(x, 4) for x in o["noise_lvls"]]
@@ -640,6 +643,20 @@ class Engine:
             seen.add(self.st.open.entry_ts)
         return len(seen)
 
+    def _box_off(self, o: dict) -> str:
+        """오늘 박스권 매매를 더 하지 않는 이유 (할 수 있으면 빈 문자열)."""
+        c = self.cfg
+        w, mid = o["hh"] - o["ll"], (o["hh"] + o["ll"]) / 2
+        if o.get("broke"):
+            return "범위를 벗어나 오늘 박스권 끝"
+        if w / mid * 100 < c.box_min_width:
+            return f"범위 폭 {w / mid * 100:.1f}% < {c.box_min_width}%"
+        if c.vol_filter_min and o.get("vol5") is not None and o["vol5"] < c.vol_filter_min:
+            return f"변동성 필터로 오늘 쉼 (5일 평균 {o['vol5']:.1f}%)"
+        if c.box_max and self._entries("box") >= c.box_max:
+            return f"오늘 박스권 {c.box_max}회 모두 사용"
+        return ""
+
     def _box_tick(self, now: datetime, o: dict, bar) -> None:
         """범위를 아직 벗어나지 않았을 때, 아래 경계 근처에서 반등하면 상승 종목, 위 경계 근처에서 꺾이면 하락 종목.
         익절은 반대 경계 쪽, 손절은 경계 바깥. 범위가 좁은 날은 수수료에 먹히므로 하지 않는다."""
@@ -650,7 +667,7 @@ class Engine:
         if width < c.box_min_width:
             self.orb_status = f"돌파 대기 · 범위 폭 {width:.1f}% < {c.box_min_width}% 라 박스권 안 함"
             return
-        if self._entries("box") >= c.box_max:
+        if c.box_max and self._entries("box") >= c.box_max:
             self.orb_status = f"돌파 대기 · 박스권 {c.box_max}회 모두 사용"
             return
         if minutes_to_close(now) < c.no_entry_before_close_min:

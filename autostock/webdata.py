@@ -330,15 +330,21 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
     orb = dict((live or {}).get("orb") or {})
     if cfg.strategy == "orb" and sess and sess.name == "regular":
         orb = {**_levels_from_bars(cfg, store, sess, now), **{k: v for k, v in orb.items() if v}}
+    if orb.get("box_off"):                            # 봇이 오늘 박스권을 더 안 한다고 알려 주면 구간을 그리지 않는다
+        orb.pop("box", None)
     rng = [orb["ll"], orb["hh"]] if orb.get("hh") and orb.get("symbol") == sym else None
-    note = None
-    if rng:                                           # SOXL 차트에만: 개장 범위와 박스 매수 구간
+    note, bands = None, []
+    if rng:                                           # SOXL 차트에만: 개장 범위와 박스권 매수 시도 구간
         lines += [{"v": orb["hh"], "k": "rng", "l": "범위 상단"}, {"v": orb["ll"], "k": "rng", "l": "범위 하단"}]
         if orb.get("box"):
-            lines += [{"v": orb["box"][1], "k": "box", "l": f"박스 {cfg.bear} 매수 구간 (이 위)"},
-                      {"v": orb["box"][0], "k": "box", "l": f"박스 {cfg.bull} 매수 구간 (이 아래)"}]
+            lo, hi = orb["box"]
+            lines += [{"v": hi, "k": "bxs", "l": f"{cfg.bear} 매수 시도 구간 (이 위 ~ 범위 상단)"},
+                      {"v": lo, "k": "bxl", "l": f"{cfg.bull} 매수 시도 구간 (이 아래 ~ 범위 하단)"}]
+            bands = [{"lo": orb["ll"], "hi": lo, "k": "bl"}, {"lo": hi, "hi": orb["hh"], "k": "bs"}]
+        elif orb.get("box_off"):
+            note = "박스권: " + orb["box_off"]
     return {"sym": sym, "bars": bars, "vwap": [vwap.get(b[0]) for b in bars], "marks": marks, "lines": lines,
-            "range": rng, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note}
+            "range": rng, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note}
 
 
 _yahoo_at: dict = {}

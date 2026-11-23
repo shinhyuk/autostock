@@ -64,6 +64,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .lg-up{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--up)}
 .lg-dn{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:9px solid var(--dn)}
 .lg-line{width:16px;height:0;border-top:2px solid}.lg-line.vwap{border-color:var(--vwap)}.lg-line.rng{border-top-style:dashed;border-color:var(--warn)}
+.lg-band{width:14px;height:10px;border-radius:2px}.lg-band.bl{background:var(--up);opacity:.3}.lg-band.bs{background:var(--dn);opacity:.3}
 .lg-line.bx{border-top-style:dotted;border-color:var(--mut)}.lg-line.nz{border-top-style:dashed;border-color:var(--noise)}
 .lg-line.stp{border-top-style:dashed;border-color:var(--dn)}.lg-line.tkp{border-top-style:dashed;border-color:var(--up)}
 .big2{font-size:26px;font-weight:800;line-height:1.25;margin:2px 0}.sub{font-size:14px;color:var(--mut);font-variant-numeric:tabular-nums}
@@ -220,7 +221,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    + f"개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회<br>"
                    + (f"<b>박스권</b>: 범위 폭 {cfg.box_min_width}% 이상인 날, 범위를 벗어나기 전까지 아래 경계 근처 반등 → {e(cfg.bull)}, "
                       f"위 경계 근처 반락 → {e(cfg.bear)} · 익절은 반대 경계의 {cfg.box_target * 100:.0f}% 지점, 손절은 경계 밖 "
-                      f"{cfg.box_stop * 100:.0f}% · 하루 {cfg.box_max}회<br>" if cfg.box else "")
+                      f"{cfg.box_stop * 100:.0f}% · " + (f"하루 {cfg.box_max}회" if cfg.box_max else "횟수 제한 없음 (범위를 벗어나면 그날 끝)")
+                      + "<br>" if cfg.box else "")
                    + (f"<b>노이즈 영역</b>: 개장 후 30분마다, 지난 {cfg.noise_lookback}일 같은 시각의 평균 움직임 밖이면 그 방향 매수, "
                       f"영역 안으로 돌아오면 청산 (확인 사이 안전 손절 {cfg.noise_stop_pct}%)<br>" if cfg.noise else "")
                    + (f"<b>변동성 필터</b>: 최근 5일 평균 하루 변동폭 {cfg.vol_filter_min}% 미만이면 그날 쉼<br>" if cfg.vol_filter_min else "")
@@ -302,11 +304,15 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                + "</div><div class=legend><span><i class='lg-up'></i>매수</span><span><i class='lg-dn'></i>매도</span>"
                "<span><i class='lg-line vwap'></i>VWAP</span>"
                + ("<span><i class='lg-line rng'></i>개장 범위</span>" if cfg.strategy == "orb" else "")
-               + ("<span><i class='lg-line bx'></i>박스 매수 구간</span>" if cfg.box else "")
+               + (f"<span><i class='lg-band bl'></i>{e(cfg.bull)} 매수 시도 구간</span>"
+                  f"<span><i class='lg-band bs'></i>{e(cfg.bear)} 매수 시도 구간</span>" if cfg.box else "")
 
                + ("<span><i class='lg-line stp'></i>손절</span><span><i class='lg-line tkp'></i>익절</span>" if o else "")
                + f"</div><div class=chartwrap><div id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></div><div id=tip></div></div>"
-               "<div id=cmsg class=note>불러오는 중…</div></section>")
+               "<div id=cmsg class=note>불러오는 중…</div>"
+               + (f"<div class=note>박스권 매수 시도: 1분봉이 빨간 구간에 닿고 양봉으로 끝나면(가운데선 아래) {e(cfg.bull)}, "
+                  f"파란 구간에 닿고 음봉으로 끝나면(가운데선 위) {e(cfg.bear)} 를 삽니다. 구간이 안 보이면 오늘 박스권을 하지 않는 날입니다.</div>"
+                  if cfg.box else "") + "</section>")
 
     # ── 거래 내역
     if trips:

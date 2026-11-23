@@ -84,7 +84,9 @@ PAPER__BOX=true
 PAPER__BOX_ZONE=0.2
 PAPER__BOX_TARGET=0.8
 PAPER__BOX_STOP=0.1
-PAPER__BOX_MAX=1
+# 박스권 횟수 제한 없음 (0). 범위를 벗어나면 그날 박스권은 끝. 모의투자는 하루 1회로 두고 비교
+#  (1분봉 20일: 1회 +24.6% / 제한없음 +23.6%, 5분봉 45일: 1회 +291만 / 제한없음 +396만 — 근거가 엇갈림)
+PAPER__BOX_MAX=0
 PAPER__BOX_MIN_WIDTH=5
 PAPER__VOL_FILTER_MIN=8
 PAPER__RISK_PER_TRADE_PCT=0

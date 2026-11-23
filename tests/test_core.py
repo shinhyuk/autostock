@@ -863,6 +863,15 @@ def test_box_trade_inside_range_and_mid_stop(orb_rig):
     m.now += timedelta(minutes=1)
     e.tick()
     assert e.st.open is None and "박스권 1회 모두 사용" in e.orb_status
+    e._beat(m.now, "running")
+    assert json.load(open(e.live_path))["orb"]["box_off"] == "오늘 박스권 1회 모두 사용"   # 차트에서 구간을 지움
+    e.cfg = dataclasses.replace(e.cfg, box_max=0)                   # 0 = 횟수 제한 없음
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open and e.st.open.kind == "box"
+    e._beat(m.now, "running")
+    assert json.load(open(e.live_path))["orb"]["box"] == [29.7, 30.3]
+    e._close("시험", 29.70)
 
     # 범위 돌파: 중간값 손절
     m.bars = real_bars
@@ -1000,7 +1009,11 @@ def test_chart_shows_bounds_on_soxl_only(tmp_path, monkeypatch):
     d = webdata.chart(Settings(), "paper", "SOXS", 0, store, None, live, [])
     assert d["lines"] == [] and d["range"] is None
     d = webdata.chart(Settings(), "paper", "SOXL", 0, store, None, live, [])
-    assert [x["k"] for x in d["lines"]] == ["rng", "rng", "box", "box"]              # 노이즈 선 없음
+    assert [x["k"] for x in d["lines"]] == ["rng", "rng", "bxs", "bxl"]              # 노이즈 선 없음
+    assert d["bands"] == [{"lo": 38.0, "hi": 38.8, "k": "bl"}, {"lo": 41.2, "hi": 42.0, "k": "bs"}]   # 매수 시도 구간
+    live["orb"]["box_off"] = "오늘 박스권 1회 모두 사용"
+    d = webdata.chart(Settings(), "paper", "SOXL", 0, store, None, live, [])
+    assert d["bands"] == [] and [x["k"] for x in d["lines"]] == ["rng", "rng"] and "1회 모두 사용" in d["note"]
 
 def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
     from autostock import market_hours, webdata
@@ -1021,7 +1034,7 @@ def test_chart_draws_range_without_bot_state(tmp_path, monkeypatch):
     d = webdata.chart(cfg, "paper", "SOXL", 0, store, None, None, [])      # 봇 상태 파일 없음
     v = {x["l"]: x["v"] for x in d["lines"]}
     assert d["range"] == [39.8, 40.4] and v["범위 상단"] == 40.4 and v["범위 하단"] == 39.8
-    assert "박스 SOXL 매수 구간 (이 아래)" in v
+    assert "SOXL 매수 시도 구간 (이 아래 ~ 범위 하단)" in v
     assert not any("노이즈" in k for k in v)
 
 

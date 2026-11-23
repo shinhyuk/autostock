@@ -7,7 +7,7 @@ const NS='http://www.w3.org/2000/svg',el=(n,a,t)=>{const e=document.createElemen
 const hm=t=>new Date(t).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'});
 const usd=v=>'$'+(Math.abs(v)<100?v.toFixed(2):v.toFixed(2)),won=v=>Math.round(v).toLocaleString('ko-KR')+'원';
 const tip=document.getElementById('tip'),msg=document.getElementById('cmsg');
-const LC={entry:'var(--mut)',stop:'var(--dn)',take:'var(--up)',trail:'var(--warn)',rng:'var(--warn)',box:'var(--mut)',noise:'var(--noise)'};
+const LC={entry:'var(--mut)',stop:'var(--dn)',take:'var(--up)',trail:'var(--warn)',rng:'var(--warn)',box:'var(--mut)',bxl:'var(--up)',bxs:'var(--dn)',noise:'var(--noise)'};
 async function load(){try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=${M}&sym=${sym}&span=${span}${window.chartQ||''}`);D=await r.json()}catch(e){D={error:'연결 실패'}}if(window.onChart)window.onChart(D);draw()}
 window.chartReload=load;
 function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
@@ -26,6 +26,7 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  for(let i=0;i<n;i++){const [t,o,h,l,c,v]=b[i],up=c>=o,col=up?'var(--up)':'var(--dn)',vh2=Math.min((v||0)/vmax,1)*vh;
   s.append(el('rect',{x:X(i)-Math.max(step*.35,.5),y:vt+vh-vh2,width:Math.max(step*.7,1),height:vh2,fill:col,opacity:.35}))}
  if(rg.length==2){const y1=Y(rg[1]),y2=Y(rg[0]);s.append(el('rect',{x:pl,y:y1,width:pw,height:Math.max(y2-y1,1),fill:'var(--warn)',opacity:.07}))}
+ for(const bd of (D.bands||[])){const y1=Y(bd.hi),y2=Y(bd.lo);s.append(el('rect',{x:pl,y:y1,width:pw,height:Math.max(y2-y1,1),fill:bd.k=='bl'?'var(--up)':'var(--dn)',opacity:.13}))}
  if(step>=3){for(let i=0;i<n;i++){const [t,o,h,l,c]=b[i],col=c>=o?'var(--up)':'var(--dn)',w=Math.max(step*.62,1.5);
    s.append(el('line',{x1:X(i),x2:X(i),y1:Y(h),y2:Y(l),stroke:col,'stroke-width':1}),el('rect',{x:X(i)-w/2,y:Math.min(Y(o),Y(c)),width:w,height:Math.max(Math.abs(Y(o)-Y(c)),1),fill:col,rx:1}))}}
  else{s.append(el('path',{d:b.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(x[4]).toFixed(1)).join(''),fill:'none',stroke:'var(--fg)','stroke-width':1.6,'stroke-linejoin':'round',opacity:.85}))}
@@ -38,7 +39,7 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  spread(vis,17,curY);
  const lab=vis.map(a=>({...a,y:a.y-4}));spread(lab,13,null);
  for(const [k,l] of vis.entries()){
-  s.append(el('line',{x1:pl,x2:W-pr,y1:l.y,y2:l.y,stroke:LC[l.k],'stroke-width':1.5,'stroke-dasharray':l.k=='entry'?'2 3':l.k=='box'?'2 4':'6 4'}));
+  s.append(el('line',{x1:pl,x2:W-pr,y1:l.y,y2:l.y,stroke:LC[l.k],'stroke-width':1.5,'stroke-dasharray':l.k=='entry'?'2 3':l.k=='box'||l.k=='bxl'||l.k=='bxs'?'2 4':'6 4'}));
   if(Math.abs(l.ty-l.y)>1)s.append(el('line',{x1:W-pr-6,x2:W-pr+1,y1:l.y,y2:l.ty,stroke:LC[l.k],'stroke-width':1}));
   s.append(el('rect',{x:W-pr+1,y:l.ty-8,width:pr-2,height:16,rx:3,fill:LC[l.k]}),el('text',{x:W-pr+5,y:l.ty+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(l.v)),
    el('text',{x:pl+4,y:lab[k].ty,'font-size':11,'font-weight':600,fill:LC[l.k],stroke:'var(--card)','stroke-width':3,'paint-order':'stroke'},l.l))}
