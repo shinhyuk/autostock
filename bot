@@ -39,7 +39,7 @@ sync_settings() {  # 저장소의 deploy/settings 가 바뀌었으면 서버 .en
   if has_position; then echo "보유 포지션이 있어 설정 변경을 미룹니다"; return 0; fi
   local k v
   while IFS='=' read -r k v; do
-    [[ $k =~ ^(MODE|CLAUDE_MODEL|CLAUDE_EFFORT|DECISION_INTERVAL_SEC|NO_ENTRY_AFTER_OPEN_MIN|MAX_TRADES_PER_DAY|MAX_CONSECUTIVE_LOSSES|COOLDOWN_AFTER_LOSS_MIN|TRAIL_ATR_MULT|TRAIL_MIN_PCT|SURGE_PCT|SESSIONS)$ && $v =~ ^[A-Za-z0-9_.,-]+$ ]] || continue
+    [[ $k =~ ^(MODE|CLAUDE_MODEL|CLAUDE_EFFORT|DECISION_INTERVAL_SEC|NO_ENTRY_AFTER_OPEN_MIN|MAX_TRADES_PER_DAY|MAX_CONSECUTIVE_LOSSES|COOLDOWN_AFTER_LOSS_MIN|TRAIL_ATR_MULT|TRAIL_MIN_PCT|SURGE_PCT|SESSIONS|MIN_CONFIDENCE)$ && $v =~ ^[A-Za-z0-9_.,-]+$ ]] || continue
     if [[ $k == MODE ]]; then
       [[ $v =~ ^(paper|kis-demo|live)(,(paper|kis-demo|live))*$ ]] || continue
       set_mode "$v"
@@ -51,6 +51,7 @@ sync_settings() {  # 저장소의 deploy/settings 가 바뀌었으면 서버 .en
   mkdir -p data
   echo "$sum" > data/.applied_settings
   sudo systemctl restart autostock
+  if systemctl is-enabled -q autostock-web 2>/dev/null; then sudo systemctl restart autostock-web; fi
 }
 
 case "${1:-}" in

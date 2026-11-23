@@ -107,8 +107,7 @@ class Engine:
 
     def preflight(self, now: datetime) -> bool:
         """kis-demo / live 는 1주 왕복 주문 테스트를 통과해야 매매를 시작한다(통과하면 다음부터 생략).
-        live 는 kis-demo 가 함께 돌고 있으면 모의투자 테스트가 먼저 통과할 때까지 기다린다.
-        실패하면 그날은 그 모드의 매매를 하지 않고 다음 거래일에 다시 시도한다."""
+        세션(정규장/프리마켓/주간거래)마다 주문 방식이 달라 따로 확인한다. 실패하면 10분 뒤 재시도."""
         c = self.cfg
         sess = market_hours.current(now)
         sname = sess.name if sess else "regular"
@@ -119,11 +118,6 @@ class Engine:
         if self.st.halted or minutes_since_open(now) < c.no_entry_after_open_min:
             return False
         if minutes_to_close(now) < c.no_entry_before_close_min:
-            return False
-        if c.mode == "live" and "kis-demo" in c.modes and not os.path.exists(self._ok_file("kis-demo")):
-            if self._waiting_logged != self.st.date:
-                self._waiting_logged = self.st.date
-                log.info("실계좌는 모의투자 주문 테스트가 통과할 때까지 대기합니다.")
             return False
         st = self.st
         if st.test_last_ts and (now - datetime.fromisoformat(st.test_last_ts)).total_seconds() < 600:
@@ -280,6 +274,7 @@ class Engine:
                 "wins": st.wins, "losses": st.losses,
                 "round_trip_fee_pct": c.fee_pct * 2,
                 "max_stop_loss_pct": c.max_stop_loss_pct,
+                "min_confidence_to_enter": c.min_confidence,
                 "position": pos,
             },
             "closed_trades_today": st.history[-6:],

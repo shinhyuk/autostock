@@ -326,14 +326,11 @@ def test_web_page_renders_and_escapes(rig):
 def test_preflight_gates_real_order_modes(rig, monkeypatch):
     import os
     e, m, brain = rig(dec(), mode="live", modes=("kis-demo", "live"))
-    e.tick()
-    assert e.st.open is None and not brain.snaps                    # 모의투자 테스트 통과 전: 대기
-    open(e._ok_file("kis-demo"), "w").close()
     e.tick()                                                         # 실계좌 테스트(1주 왕복) 후 매매 시작
     assert os.path.exists(e._ok_file("live")) and e.st.open and e.st.open.qty > 1
 
     e2, m2, brain2 = rig(dec(), mode="kis-demo", modes=("kis-demo",))
-    os.remove(e2._ok_file("kis-demo"))
+    assert not os.path.exists(e2._ok_file("kis-demo"))
     e2.broker.buy = lambda *a: None                                  # 매수 미체결
     e2.tick()
     assert e2.st.halted == "" and e2.st.test_attempts == 1 and not brain2.snaps

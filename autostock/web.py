@@ -16,6 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
+
 from . import config, market_hours
 
 MODES = {"paper": "가상매매", "kis-demo": "모의투자", "live": "실계좌"}
@@ -256,6 +258,7 @@ def make_handler(token: str):
             if u.path != "/" or not hmac.compare_digest(q.get("k", [""])[0], token):
                 self.send_error(404)
                 return
+            load_dotenv(override=True)   # 실행 중에 .env 가 바뀌어도 최신 설정으로 보여준다
             cfg = config.load()
             mode = q.get("mode", [cfg.mode])[0]
             if mode not in MODES:
