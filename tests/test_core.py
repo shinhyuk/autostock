@@ -983,3 +983,22 @@ def test_ledger_compounds_and_resets_on_capital_change(rig):
     assert e2.st.open.qty == int((e.cfg.capital_usd + loss) / 30.0)  # 줄어든 자산 기준 수량
     e3 = Engine(dataclasses.replace(e.cfg, capital_krw=2_000_000), m, PaperBroker(), Brain(), clock=lambda: m.now)
     assert e3.ledger["realized_usd"] == 0                            # 시작 자금이 바뀌면 새로 시작
+
+
+def test_chart_maps_soxl_bounds_onto_soxs(tmp_path, monkeypatch):
+    from autostock import market_hours, webdata
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    d0 = datetime.now(ET) - timedelta(days=1)
+    while d0.weekday() >= 5:
+        d0 -= timedelta(days=1)
+    t0 = d0.replace(hour=9, minute=30, second=0, microsecond=0)
+    store.merge("SOXL", [Bar(t0 + timedelta(minutes=i), 40, 40, 40, 40, 1) for i in range(5)])
+    store.merge("SOXS", [Bar(t0 + timedelta(minutes=i), 20, 20, 20, 20, 1) for i in range(5)])
+    monkeypatch.setattr(market_hours, "now_et", lambda: t0 + timedelta(minutes=6))
+    monkeypatch.setattr(webdata, "market", lambda cfg: None)
+    live = {"orb": {"hh": 42.0, "ll": 38.0, "symbol": "SOXL", "box": [38.8, 41.2]}}
+    d = webdata.chart(Settings(), "paper", "SOXS", 0, store, None, live, [])
+    v = {x["l"].split(" (")[0]: x["v"] for x in d["lines"]}
+    assert v["범위 하단"] == 19.0 and v["범위 상단"] == 21.0         # SOXL +5% → SOXS -5%
+    assert d["range"] == [19.0, 21.0] and "환산" in d["note"]
+    assert any("SOXS 매수 구간 (이 아래)" in x["l"] and x["v"] == 19.4 for x in d["lines"])

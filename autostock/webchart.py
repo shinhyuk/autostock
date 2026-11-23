@@ -29,10 +29,18 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
    s.append(el('line',{x1:X(i),x2:X(i),y1:Y(h),y2:Y(l),stroke:col,'stroke-width':1}),el('rect',{x:X(i)-w/2,y:Math.min(Y(o),Y(c)),width:w,height:Math.max(Math.abs(Y(o)-Y(c)),1),fill:col,rx:1}))}}
  else{s.append(el('path',{d:b.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(x[4]).toFixed(1)).join(''),fill:'none',stroke:'var(--fg)','stroke-width':1.6,'stroke-linejoin':'round',opacity:.85}))}
  const vp=vw.map((v,i)=>v==null?null:[X(i),Y(v)]).filter(Boolean);if(vp.length>1)s.append(el('path',{d:vp.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(''),fill:'none',stroke:'var(--vwap)','stroke-width':1.6,opacity:.9}));
- for(const l of ln){const out=!inR(l.v),y=out?pt+2:Y(l.v);if(out){s.append(el('text',{x:W-pr-4,y:pt+12,'font-size':11,fill:LC[l.k],'text-anchor':'end'},l.l+' '+usd(l.v)+' ↑'));continue}
-  s.append(el('line',{x1:pl,x2:W-pr,y1:y,y2:y,stroke:LC[l.k],'stroke-width':1.5,'stroke-dasharray':l.k=='entry'?'2 3':l.k=='box'?'2 4':'6 4'}),
-   el('rect',{x:W-pr+1,y:y-8,width:pr-2,height:16,rx:3,fill:LC[l.k]}),el('text',{x:W-pr+5,y:y+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(l.v)),
-   el('text',{x:pl+4,y:y-4,'font-size':11,'font-weight':600,fill:LC[l.k],stroke:'var(--card)','stroke-width':3,'paint-order':'stroke'},l.l))}
+ // 선은 실제 가격 위치에, 가격표·이름은 겹치지 않게 위아래로 비켜 그린다 (현재가 표는 고정)
+ const vis=ln.filter(l=>inR(l.v)).map(l=>({...l,y:Y(l.v)})).sort((a,c)=>a.y-c.y),outs=ln.filter(l=>!inR(l.v));
+ outs.forEach((l,k)=>s.append(el('text',{x:W-pr-4,y:pt+12+k*13,'font-size':11,fill:LC[l.k],'text-anchor':'end'},l.l+' '+usd(l.v)+' ↑')));
+ const curY=Y(b[n-1][4]),spread=(arr,gap,fixed)=>{let prev=-1e9;for(const a of arr){a.ty=Math.max(a.y,prev+gap);if(fixed!=null&&Math.abs(a.ty-fixed)<gap)a.ty=fixed+gap;prev=a.ty}
+  const over=arr.length?arr[arr.length-1].ty-(pt+ph+8):0;if(over>0)for(const a of arr)a.ty-=over;};
+ spread(vis,17,curY);
+ const lab=vis.map(a=>({...a,y:a.y-4}));spread(lab,13,null);
+ for(const [k,l] of vis.entries()){
+  s.append(el('line',{x1:pl,x2:W-pr,y1:l.y,y2:l.y,stroke:LC[l.k],'stroke-width':1.5,'stroke-dasharray':l.k=='entry'?'2 3':l.k=='box'?'2 4':'6 4'}));
+  if(Math.abs(l.ty-l.y)>1)s.append(el('line',{x1:W-pr-6,x2:W-pr+1,y1:l.y,y2:l.ty,stroke:LC[l.k],'stroke-width':1}));
+  s.append(el('rect',{x:W-pr+1,y:l.ty-8,width:pr-2,height:16,rx:3,fill:LC[l.k]}),el('text',{x:W-pr+5,y:l.ty+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(l.v)),
+   el('text',{x:pl+4,y:lab[k].ty,'font-size':11,'font-weight':600,fill:LC[l.k],stroke:'var(--card)','stroke-width':3,'paint-order':'stroke'},l.l))}
  for(const m of mk){const i=idx(m.t),cx=X(i),buy=m.k=='buy',cy=buy?Y(b[i][3])+12:Y(b[i][2])-12,d=buy?`M${cx} ${cy-7}L${cx+7} ${cy+5}L${cx-7} ${cy+5}Z`:`M${cx} ${cy+7}L${cx+7} ${cy-5}L${cx-7} ${cy-5}Z`;
   s.append(el('line',{x1:cx,x2:cx,y1:Y(m.p),y2:cy,stroke:buy?'var(--up)':'var(--dn)','stroke-width':1,opacity:.6}),el('path',{d,fill:buy?'var(--up)':'var(--dn)',stroke:'var(--card)','stroke-width':2,'stroke-linejoin':'round'}))}
  const L=b[n-1];s.append(el('line',{x1:pl,x2:W-pr,y1:Y(L[4]),y2:Y(L[4]),stroke:'var(--fg)','stroke-width':1,opacity:.35}),el('rect',{x:W-pr+1,y:Y(L[4])-8,width:pr-2,height:16,rx:3,fill:'var(--fg)'}),el('text',{x:W-pr+5,y:Y(L[4])+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(L[4])));
@@ -41,7 +49,7 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
   const here=mk.filter(m=>idx(m.t)==i).map(m=>`<div class=${m.k=='buy'?'tu':'td'}>${m.k=='buy'?'▲ 매수':'▼ 매도'} ${m.q}주 @ ${usd(m.p)}${m.pnl!=null?' · '+(m.pnl>=0?'+':'')+won(m.pnl*D.fx):''}</div>`).join('');
   const chg=(c/o-1)*100;tip.innerHTML=`<b>${hm(t)}</b> <span class=${chg>=0?'tu':'td'}>${chg>=0?'+':''}${chg.toFixed(2)}%</span><br>시 ${usd(o)} · 고 ${usd(h)}<br>저 ${usd(l)} · 종 ${usd(c)}<br>거래량 ${(v||0).toLocaleString('ko-KR')}`+(vw[i]?`<br>VWAP ${usd(vw[i])}`:'')+here;
   tip.style.display='block';tip.style.left=Math.min(Math.max(cx-80,0),W-170)+'px'}else tip.style.display='none';
- box.append(s);msg.textContent=`${sym} 1분봉 ${n}개 · ${hm(b[0][0])}~${hm(L[0])} · 10초마다 갱신 · 현재 ${usd(L[4])}`}
+ box.append(s);msg.textContent=`${sym} 1분봉 ${n}개 · ${hm(b[0][0])}~${hm(L[0])} · 10초마다 갱신 · 현재 ${usd(L[4])}`+(D.note?' · '+D.note:'')}
 const mv=e=>{const r=box.getBoundingClientRect();hv=(e.touches?e.touches[0].clientX:e.clientX)-r.left;draw()};
 box.addEventListener('pointermove',mv);box.addEventListener('pointerdown',mv);box.addEventListener('pointerleave',()=>{hv=null;draw()});
 const pick=(sel,f)=>document.querySelectorAll(sel).forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll(sel).forEach(x=>x.classList.toggle('on',x==a));f(a);hv=null;load()}));

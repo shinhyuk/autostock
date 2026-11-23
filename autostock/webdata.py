@@ -295,7 +295,25 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
                               "l": "추적 손절 시작선"})
     orb = (live or {}).get("orb") or {}
     rng = [orb["ll"], orb["hh"]] if orb.get("hh") and orb.get("symbol") == sym else None
-    if rng:
+    note = None
+    if orb.get("hh") and sym == cfg.bear and orb.get("symbol") == cfg.bull:
+        # SOXL 기준 경계를 SOXS 가격으로 환산: 장 시작 가격을 기준으로 SOXL 이 x% 움직이면 SOXS 는 -x% 라고 근사
+        lb = store.get(cfg.bull, sess_open)
+        sb = [b for b in allb if b[0] / 1000 >= sess_open]
+        if lb and sb:
+            L0, S0 = lb[0][1], sb[0][1]
+            conv = lambda v: round(S0 * (1 - (v / L0 - 1)), 4)          # noqa: E731
+            rng = sorted([conv(orb["hh"]), conv(orb["ll"])])
+            lines += [{"v": conv(orb["hh"]), "k": "rng", "l": f"범위 하단 (SOXL 상단 ${orb['hh']:.2f})"},
+                      {"v": conv(orb["ll"]), "k": "rng", "l": f"범위 상단 (SOXL 하단 ${orb['ll']:.2f})"}]
+            if orb.get("box"):
+                lines += [{"v": conv(orb["box"][1]), "k": "box", "l": f"박스 {cfg.bear} 매수 구간 (이 아래)"},
+                          {"v": conv(orb["box"][0]), "k": "box", "l": f"박스 {cfg.bull} 매수 구간 (이 위)"}]
+            if orb.get("noise"):
+                lines += [{"v": conv(orb["noise"][1]), "k": "noise", "l": "노이즈 하단"},
+                          {"v": conv(orb["noise"][0]), "k": "noise", "l": "노이즈 상단"}]
+            note = f"경계선은 {cfg.bull} 기준을 장 시작 가격으로 환산한 근사값"
+    elif rng:
         lines += [{"v": orb["hh"], "k": "rng", "l": "범위 상단"}, {"v": orb["ll"], "k": "rng", "l": "범위 하단"}]
         if orb.get("box"):
             lines += [{"v": orb["box"][1], "k": "box", "l": "박스 SOXS 매수 구간 (이 위)"},
@@ -303,4 +321,4 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
         if orb.get("noise"):
             lines += [{"v": orb["noise"][1], "k": "noise", "l": "노이즈 상단"}, {"v": orb["noise"][0], "k": "noise", "l": "노이즈 하단"}]
     return {"sym": sym, "bars": bars, "vwap": [vwap.get(b[0]) for b in bars], "marks": marks, "lines": lines,
-            "range": rng, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw}
+            "range": rng, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note}
