@@ -1247,3 +1247,16 @@ def test_manual_buy_holds_without_selling(kis, monkeypatch):
     assert "TTTT1002U" in names and "TTTT1006U" not in names and "[OK]" in msgs[-1]           # 사고 팔지 않음
     monkeypatch.setattr(market_hours, "now_et", lambda: datetime(2026, 11, 28, 12, 0, tzinfo=ET))  # 토요일
     assert manual_buy(KISMarket(c), b, "SOXL", 1, out=msgs.append) == 2
+
+
+def test_live_tab_shows_order_test_status(tmp_path):
+    from autostock import web
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), modes=("live",), order_test_symbol="SOXL")
+    assert "SOXL 주문 테스트 아직 안 함" in web.render(cfg, "live", "t") and "서버에 적용된 설정: SOXL/SOXS" in web.render(cfg, "live", "t")
+    with open(tmp_path / "journal_live.jsonl", "w") as f:
+        f.write(json.dumps({"ts": "2026-11-24T05:10:00-05:00", "kind": "ordertest", "ok": False,
+                            "detail": "APBK1681 기본예탁금 부족"}) + "\n")
+    assert "SOXL 주문 테스트 실패" in web.render(cfg, "live", "t") and "APBK1681" in web.render(cfg, "live", "t")
+    with open(tmp_path / "ordertest_live_day.ok", "w") as f:
+        f.write("2026-11-24T01:00:00+09:00 SOXL")
+    assert "SOXL 주문 테스트 통과" in web.render(cfg, "live", "t")

@@ -125,7 +125,7 @@ class Engine:
     def _beat(self, now: datetime, status: str) -> None:
         """결과 페이지가 읽는 현재 상태(봇이 살아 있는지, 현재가, 평가손익)."""
         t, last = self.st.open, self._last_price
-        data = {"ts": now.isoformat(), "status": status, "model": getattr(self.cfg, "model", ""),
+        data = {"ts": now.isoformat(), "status": status, "model": getattr(self.cfg, "model", ""), "halted": self.st.halted,
                 "equity_usd": round(self.equity_usd, 2), "ledger": self.ledger,
                 "last": last, "unrealized_usd": round(self.risk.unrealized(t, last), 2) if t and last else None}
         if self.cfg.strategy == "orb":

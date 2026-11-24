@@ -167,6 +167,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     out.append(_nav(token, mode, cfg.modes) + "</nav>")
     if mode != "paper":                               # 모의투자·실계좌: 증권사 실제 계좌 자산을 맨 위에
         out.append(_account_card(cfg, mode))
+        out.append(_test_status(cfg, mode, events, live))
     if not running:
         links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
         out.append(f"<div class='card note'>이 탭({MODES[mode]})은 지금 실행 중이 아니라 지난 기록만 보입니다. 현재 실행 중: {links}</div>")
@@ -640,6 +641,49 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
               f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
               f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
+
+
+def _code_version() -> str:
+    """서버에 깔린 코드 버전 (자동 업데이트가 적용됐는지 화면에서 확인용)."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "log", "-1", "--format=%h (%cd 한국시간)", "--date=format-local:%m-%d %H:%M"],
+                           capture_output=True, text=True, timeout=3, env={**os.environ, "TZ": "Asia/Seoul"},
+                           cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return r.stdout.strip() or "?"
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+
+
+def _test_status(cfg, mode: str, events: list, live) -> str:
+    """주문 테스트(첫 1주 매수) 상태와 서버에 실제 적용된 설정. 터미널 없이 왜 안 샀는지 보이게."""
+    e = html.escape
+    sym = cfg.order_test_symbol or cfg.bull
+    tests = [x for x in events if x.get("kind") == "ordertest"]
+    passed = []
+    for ss in ("regular", "day"):
+        fn = os.path.join(cfg.data_dir, f"ordertest_{mode}{'' if ss == 'regular' else '_' + ss}.ok")
+        try:
+            with open(fn, encoding="utf-8") as f:
+                parts = f.read().split()
+            if len(parts) > 1 and parts[1] == sym:
+                passed.append(("정규장·프리·애프터" if ss == "regular" else "주간거래") + f" {_kst(parts[0], '%m-%d %H:%M')}")
+        except FileNotFoundError:
+            pass
+    last = tests[-1] if tests else None
+    if passed:
+        head = f"<b class=up>{e(sym)} 주문 테스트 통과</b> · " + " · ".join(e(p) for p in passed)
+    elif last and not last.get("ok"):
+        head = f"<b class=dn>{e(sym)} 주문 테스트 실패</b> ({_kst(last['ts'], '%m-%d %H:%M')}): {e(str(last.get('detail', ''))[-160:])}"
+    else:
+        head = (f"<b>{e(sym)} 주문 테스트 아직 안 함</b> · 봇이 켜는 거래 시간({e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))})이 "
+                "열리고 2분 뒤 1주를 사서 보유합니다")
+    halted = ((live or {}).get("halted") or "")
+    st = (live or {}).get("status")
+    return (f"<section class='card note' style='margin-top:10px'>{head}"
+            f"{'<br>봇 상태: ' + e(st) if st else ''}{' · 멈춘 이유: ' + e(halted) if halted else ''}"
+            f"<br>서버에 적용된 설정: {e(cfg.bull)}/{e(cfg.bear or '-')} · 세션 {e(','.join(cfg.sessions))} · "
+            f"운용금 {cfg.capital_krw:,.0f}원 · 코드 {e(_code_version())}</section>")
 
 
 def _account_card(cfg, mode: str) -> str:

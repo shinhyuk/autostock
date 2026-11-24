@@ -20,9 +20,13 @@ has_position() {   # 실계좌(live)가 포지션을 들고 있으면 참. 가�
   local m
   for m in $(modes); do
     [[ $m == live ]] || continue
-    if $PY -c 'import json,sys
-try: sys.exit(0 if json.load(open(sys.argv[1])).get("open") else 1)
-except FileNotFoundError: sys.exit(1)' "$DIR/data/state_$m.json"; then return 0; fi
+    # 진입한 지 2일 넘은 포지션은 봇 장부에만 남은 오래된 기록으로 보고 업데이트를 막지 않는다
+    if $PY -c 'import json,sys,datetime
+try:
+    o=json.load(open(sys.argv[1])).get("open")
+    ok=bool(o) and (datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(o["entry_ts"])).total_seconds()<2*86400
+    sys.exit(0 if ok else 1)
+except (FileNotFoundError, ValueError, KeyError, TypeError): sys.exit(1)' "$DIR/data/state_$m.json"; then return 0; fi
   done
   return 1
 }
