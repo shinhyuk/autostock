@@ -102,6 +102,8 @@ class Settings:
     box_stop: float = 0.1               # 경계 바깥으로 범위 폭의 이 비율만큼 벗어나면 손절
     box_max: int = 1                    # 세션당 박스권 거래 수
     box_min_width: float = 5.0          # 범위 폭(%)이 이보다 좁은 날은 박스권 매매 안 함(수수료에 먹힘)
+    box_peer_max: float = 0.0           # >0: 동조 종목(엔비디아·SOXX)이 개장가 대비 반대로 이 % 넘게 움직였으면 박스권 진입 안 함
+    box_gap_max: float = 0.0            # >0: 개장 갭이 반대 방향으로 이 % 넘으면 그 방향 박스권 진입 안 함 (갭 하락 날 SOXL 반등 매수 등)
     order_test_symbol: str = ""         # 주문 테스트에 쓸 종목 (비우면 매매 종목)
     order_test_sell: bool = True        # False 면 주문 테스트에서 1주를 사기만 하고 포지션으로 넘긴다
     style: str = "normal"               # normal | aggressive(분 단위 초단타)
@@ -177,6 +179,8 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         box_target=_f("BOX_TARGET", 0.8),
         box_stop=_f("BOX_STOP", 0.1),
         box_max=_i("BOX_MAX", 1),
+        box_peer_max=_f("BOX_PEER_MAX", 0.0),
+        box_gap_max=_f("BOX_GAP_MAX", 0.0),
         box_min_width=_f("BOX_MIN_WIDTH", 5.0),
         order_test_sell=_s("ORDER_TEST_SELL", "true").lower() not in ("false", "0", "no"),
         live_confirm=_s("LIVE_TRADING_CONFIRM"),

@@ -467,6 +467,7 @@ class Engine:
                     log.warning("동조 종목 %s 시가 조회 실패: %s", p, e)
                     o["peers"][p] = None
             o["vol5"], o["vol_src"] = self._vol5(sess)
+            o["gap"] = self._gap(sess, rb[0].open)
             self.orb[sess.key] = o
             log.info("개장 %d분 범위: $%.2f ~ $%.2f · 5일 평균 변동폭 %s", c.orb_minutes, o["ll"], o["hh"],
                      f"{o['vol5']:.1f}% ({o['vol_src']})" if o["vol5"] is not None else f"없음 ({o['vol_src']})")
@@ -653,6 +654,18 @@ class Engine:
             seen.add(self.st.open.entry_ts)
         return len(seen)
 
+    def _gap(self, sess, open_px: float) -> float | None:
+        """개장 갭 % (전 거래일 정규장 종가 대비). 노이즈 기록이나 일봉에서 전일 종가를 찾고, 없으면 None."""
+        try:
+            from .noise import NoiseBook
+            pc = NoiseBook(os.path.join(self.cfg.data_dir, f"noise_{self.cfg.bull}.json")).prev_close(sess.key)
+            if not pc:
+                pc = self.market.quote(self.cfg.bull).prev_close or None
+            return (open_px / pc - 1) * 100 if pc else None
+        except Exception as e:
+            log.info("개장 갭 계산 실패: %s", e)
+            return None
+
     def _box_off(self, o: dict) -> str:
         """오늘 박스권 매매를 더 하지 않는 이유 (할 수 있으면 빈 문자열)."""
         c = self.cfg
@@ -690,6 +703,20 @@ class Engine:
             side, stop_lvl, take_lvl = c.bear, hh + c.box_stop * w, hh - c.box_target * w
         if not side:
             self.orb_status = f"돌파 대기 · 박스권 경계 대기 (아래 ${ll + c.box_zone * w:.2f} 이하 / 위 ${hh - c.box_zone * w:.2f} 이상)"
+            return
+        sg = 1 if side == c.bull else -1
+        if c.box_peer_max:                           # 시장 전체가 반대로 가는 날의 역추세 매수를 피한다
+            against = []
+            for p, p0 in o["peers"].items():
+                if p0:
+                    chg = (self.market.quote(p).last / p0 - 1) * 100
+                    if sg * chg < -c.box_peer_max:
+                        against.append(f"{p} {chg:+.2f}%")
+            if against:
+                self.orb_status = f"돌파 대기 · 박스권 {side} 신호지만 동조 종목이 반대로 움직임: {', '.join(against)}"
+                return
+        if c.box_gap_max and o.get("gap") is not None and sg * o["gap"] < -c.box_gap_max:
+            self.orb_status = f"돌파 대기 · 박스권 {side} 신호지만 개장 갭 {o['gap']:+.1f}% 와 반대 방향"
             return
         ref = bar.close
         d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
