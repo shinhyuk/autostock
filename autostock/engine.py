@@ -179,6 +179,15 @@ class Engine:
         suffix = "" if session == "regular" else f"_{session}"
         return os.path.join(self.cfg.data_dir, f"ordertest_{mode}{suffix}.ok")
 
+    def _test_passed(self, mode: str, session: str, sym: str) -> bool:
+        """그 세션 주문 경로를 이 종목으로 확인했는지. 종목이 바뀌면(예: 인텔 → SOXL, 레버리지 요건이 다름) 다시 확인한다."""
+        try:
+            with open(self._ok_file(mode, session), encoding="utf-8") as f:
+                parts = f.read().split()
+        except FileNotFoundError:
+            return False
+        return len(parts) > 1 and parts[1] == sym
+
     def preflight(self, now: datetime) -> bool:
         """kis-demo / live 는 1주 왕복 주문 테스트를 통과해야 매매를 시작한다(통과하면 다음부터 생략).
         세션(정규장/프리마켓/주간거래)마다 주문 방식이 달라 따로 확인한다. 실패하면 1분 뒤 재시도."""
@@ -191,7 +200,8 @@ class Engine:
             return True
         # 정규장·프리마켓·애프터마켓은 같은 주문 API, 주간거래만 다르다 → 같은 경로는 한 번만 확인
         same = ("day",) if sname == "day" else ("regular", "pre", "post")
-        if any(os.path.exists(self._ok_file(c.mode, x)) for x in same):
+        sym = c.order_test_symbol or c.bull
+        if any(self._test_passed(c.mode, x, sym) for x in same):
             return True
         if self.st.halted or minutes_since_open(now) < c.no_entry_after_open_min:
             return False
@@ -218,7 +228,7 @@ class Engine:
         self._journal("ordertest", ok=ok, session=sname, attempt=st.test_attempts, detail=" / ".join(lines))
         if ok:
             with open(self._ok_file(c.mode, sname), "w") as f:
-                f.write(now.isoformat())
+                f.write(f"{now.isoformat()} {sym}")
             log.info("주문 테스트 통과 — %s (%s 세션) 매매를 시작합니다.", c.mode, sname)
             if not c.order_test_sell:
                 self.reconcile()     # 테스트로 산 1주를 보유 포지션으로 넘겨받는다

@@ -776,8 +776,13 @@ def test_afterhours_session_and_per_session_strategy(monkeypatch, tmp_path):
 def test_order_test_shared_between_regular_and_extended(rig):
     import os
     e, m, _ = rig(mode="live", modes=("live",))
-    open(e._ok_file("live", "pre"), "w").close()                    # 프리마켓에서 통과했으면
+    with open(e._ok_file("live", "pre"), "w") as f:                 # 프리마켓에서 같은 종목으로 통과했으면
+        f.write("2026-11-20T05:00:00-05:00 SOXL")
     assert e.preflight(m.now) and not os.path.exists(e._ok_file("live"))   # 정규장은 다시 안 함
+    assert e._test_passed("live", "pre", "SOXL") and not e._test_passed("live", "pre", "INTC")
+    with open(e._ok_file("live", "pre"), "w") as f:                 # 예전 형식(종목 없음) = 인텔 때 통과 → 다시 확인
+        f.write("2026-11-20T05:00:00-05:00")
+    assert not e._test_passed("live", "pre", "SOXL")
 
 
 def test_orb_long_only_skips_downside(orb_rig):

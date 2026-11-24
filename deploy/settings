@@ -12,24 +12,41 @@ COOLDOWN_AFTER_LOSS_MIN=10
 SESSIONS=regular,day,pre
 MIN_CONFIDENCE=0.45
 
-# 실계좌: 레버리지 ETF 는 기본예탁금 요건 때문에 보류. 인텔을 정규장에서만, 개장 30분 범위 상단 돌파 때만 매수
-#  (19거래일 백테스트: 초단타 -118.9% / 이 설정 -1.1%, 거래 6회. 하락장이라 이기는 방식은 없었고 거래를 줄이는 게 최선)
-BULL_SYMBOL=INTC
-BEAR_SYMBOL=NONE
-CONTEXT_SYMBOLS=NVDA,SOXX,QQQ,AMD,AVGO,TSM,MU
-TRAIL_MIN_PCT=0.3
-LIVE__ORDER_TEST_SYMBOL=INTC
+# 실계좌: 계좌 1200만원 중 1000만원은 레버리지 ETP 기본예탁금으로 두고, 200만원만 SOXL/SOXS 에 운용.
+#  모의투자와 같은 검증된 설정(개장 범위 돌파 + 박스권 하루 1회 + 변동성 필터 + 손절 시 자본 3%만 잃도록 수량 조절).
+#  주간거래를 켜 둔 이유: 첫 주문 테스트로 SOXL 1주를 사서 보유(바로 팔지 않음). 주간거래 중 매매 전략은 돌지 않는다(정규장에서만).
+#  테스트로 산 1주는 손절·익절에 닿거나 그 세션 마감 5분 전(주간거래는 한국 17:10)에 정리된다.
+BULL_SYMBOL=SOXL
+BEAR_SYMBOL=SOXS
+CONTEXT_SYMBOLS=NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ
+LIVE__BULL_SYMBOL=SOXL
+LIVE__BEAR_SYMBOL=SOXS
+LIVE__CONTEXT_SYMBOLS=NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ
+LIVE__ORDER_TEST_SYMBOL=SOXL
 LIVE__ORDER_TEST_SELL=false
 LIVE__STRATEGY=orb
-LIVE__SESSIONS=regular
-LIVE__ORB_MINUTES=30
-LIVE__ORB_WINDOW_MIN=120
-LIVE__ORB_MAX_TRADES=1
-LIVE__ORB_STOP_PCT=1.0
-LIVE__ORB_TAKE_PCT=6
-LIVE__ORB_TRAIL_PCT=1.5
-LIVE__ORB_PEERS=SOXX,QQQ
+LIVE__SESSIONS=regular,day
+LIVE__CAPITAL_KRW=2000000
+LIVE__DAILY_TARGET_KRW=200000
+LIVE__DAILY_MAX_LOSS_KRW=200000
+LIVE__ORB_MINUTES=20
+LIVE__ORB_WINDOW_MIN=60
+LIVE__ORB_MAX_TRADES=2
+LIVE__ORB_STOP_MODE=mid
+LIVE__ORB_TAKE_PCT=10
+LIVE__ORB_TRAIL_PCT=0
+LIVE__ORB_PEERS=NVDA,SOXX
+LIVE__BOX=true
+LIVE__BOX_ZONE=0.2
+LIVE__BOX_TARGET=0.8
+LIVE__BOX_STOP=0.1
+LIVE__BOX_MAX=1
+LIVE__BOX_MIN_WIDTH=5
+LIVE__MAX_STOP_LOSS_PCT=6
 LIVE__TAKE_PROFIT_MAX_PCT=10
+LIVE__VOL_FILTER_MIN=8
+LIVE__RISK_PER_TRADE_PCT=3
+LIVE__TRAIL_MIN_PCT=0.6
 
 # 모의투자: 1000만원으로 SOXL/SOXS, 정규장만. (모든 탭: 매일 다시 채우지 않고 누적 손익을 반영한 자산으로 매매) 가상매매(기존 돌파 설정)와 나란히 비교하는 개선안:
 #  돌파(진입 마감 60분, 추적 손절 없음, 손절은 범위 중간값) + 범위 안 박스권 매매 (research/README.md)
