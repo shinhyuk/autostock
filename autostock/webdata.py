@@ -224,10 +224,12 @@ def collector(store: BarStore, stop: threading.Event) -> None:
             market_hours.ENABLED = tuple(sorted({x for c in cfgs for x in c.sessions}))
             syms = sorted({s for c in cfgs for s in c.symbols})
             now = market_hours.now_et()
-            ext = extbox.session(now) is not None          # 시간외 탭: 봇이 쉬어도 프리·애프터 시세를 모은다
+            es = extbox.session(now)
+            ext = es is not None                             # 시간외 탭: 봇이 쉬어도 프리·애프터·주간거래 시세를 모은다
             if ext:
                 p = config.load("paper")
                 syms = sorted(set(syms) | {p.bull, p.bear} - {""})
+                _enable_day(es)
             mk = market(cfg)
             if mk and (ext or market_hours.is_open(now) or not any(store.data.get(s) for s in syms)):
                 for s in syms:
@@ -238,6 +240,8 @@ def collector(store: BarStore, stop: threading.Event) -> None:
                     finally:
                         _kis_lock.release()
                     store.merge(s, bars)
+                    if es and es[0] == "day" and s == p.bull:
+                        extbox.save_day_bars(ext_day_path(p), bars)
             if time.time() - last_save > 300:
                 store.save()
                 last_save = time.time()
@@ -350,6 +354,16 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
 _yahoo_at: dict = {}
 
 
+def _enable_day(es) -> None:
+    """주간거래 중이면 KIS 주간거래 시세 코드(BAA 등)를 쓰도록 세션 목록에 넣는다 (봇 설정과 무관하게)."""
+    if es and es[0] == "day" and "day" not in market_hours.ENABLED:
+        market_hours.ENABLED = tuple(sorted(set(market_hours.ENABLED) | {"day"}))
+
+
+def ext_day_path(cfg) -> str:
+    return os.path.join(cfg.data_dir, f"ext_day_{cfg.bull}.json")
+
+
 def ext_hist_path(cfg) -> str:
     return os.path.join(cfg.data_dir, f"ext_hist_{cfg.bull}.json")
 
@@ -362,6 +376,7 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
     if x not in extbox.X_CHOICES:
         x = extbox.X_CHOICES[0]
     now = market_hours.now_et()
+    _enable_day(extbox.session(now))
     mk = market(cfg)
     book = {}
     if mk and _kis_lock.acquire(timeout=2):
@@ -378,7 +393,7 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
     sess = extbox.session(now)
     t = now.timestamp()
     note = None
-    if sess and not store.get(bull, t - 180):          # 증권사 분봉에 시간외가 없으면 야후 1분봉으로 채운다
+    if sess and sess[0] != "day" and not store.get(bull, t - 180):   # 증권사 분봉에 시간외가 없으면 야후 1분봉 (주간거래는 야후에 없음)
         for s in (bull, bear):
             if t - _yahoo_at.get(s, 0) >= 60:
                 _yahoo_at[s] = t
@@ -390,7 +405,8 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
     since = t - span * 60 if span > 0 else (sess[1].timestamp() if sess else t - 8 * 3600)
     bars = store.get(sym, since)
     back = t - 6 * 3600                               # 박스는 최대 3시간짜리라 넉넉히
-    adv = extbox.advice(store.get(bull, back), store.get(bear, back), now, ext_hist_path(cfg), x, cfg.fee_pct)
+    adv = extbox.advice(store.get(bull, back), store.get(bear, back), now, ext_hist_path(cfg), x, cfg.fee_pct,
+                        ext_day_path(cfg))
     adv["book"] = {k: v for k, v in book.items() if v}
     lines, rng, bands, rng_t = [], None, [], None
     r4 = lambda v: round(v, 4)   # noqa: E731

@@ -442,12 +442,12 @@ def ext_card(adv: dict, cfg) -> str:
         if nxt:
             o = nxt[1].astimezone(KST)
             when = f"다음 {extbox.SLABEL[nxt[0]]}: 한국시간 {'월화수목금토일'[o.weekday()]}요일 {o:%H:%M}"
-        out.append(f"<div class=big2>지금은 프리·애프터 시간이 아닙니다</div><div class=sub>{e(when)}</div>")
+        out.append(f"<div class=big2>지금은 시간외 거래 시간이 아닙니다</div><div class=sub>{e(when)}</div>")
         show = nxt[0] if nxt else "pre"
     else:
         show = sess
         head = f"{extbox.SLABEL[sess]} · 한국시간 {adv['close'].astimezone(KST):%H:%M} 종료"
-        if adv.get("age_min", 0) > 5:
+        if adv.get("stale"):
             out.append(f"<div class=sub>{e(head)}</div><div class=big2>시세가 {adv['age_min']:.0f}분째 멈춰 있습니다</div>"
                        "<div class=sub>거래가 없거나 시세를 받지 못하고 있어 판단하지 않습니다"
                        f"{' · 마지막 ' + usd(adv['last']) if adv.get('last') else ''}</div>")
@@ -462,7 +462,7 @@ def ext_card(adv: dict, cfg) -> str:
             out.append(_ext_box_part(adv, cfg, head))
     # ── 참고: ±폭 확률 (접어 둠)
     ref = []
-    if sess and "zone" in adv and adv.get("age_min", 0) <= 5:
+    if sess and "zone" in adv and not adv.get("stale"):
         b = adv.get("b")
         if b and b["up"] + b["dn"]:
             res = b["up"] + b["dn"]
@@ -496,6 +496,9 @@ def ext_card(adv: dict, cfg) -> str:
         out.append(f"<div class=note>과거 자료 {st['since']} ~ {st['until']} (야후 5분봉, 6시간마다 갱신) · 앞·뒤 기간은 {st['split']} 기준 · "
                    f"사례는 그 위치에 새로 들어온 순간만 셈 · {e(bear)} 는 {e(bull)} 반대 방향으로 같은 비율 움직인다고 보고 계산 · "
                    f"수수료 편도 {cfg.fee_pct}% + 호가 차이 편도 {extbox.SLIP_PCT}% 가정</div>")
+    elif show == "day":
+        out.append("<div class=note>주간거래는 야후에 과거 시세가 없어, 서버가 주간거래 1분봉을 직접 모으는 중입니다. "
+                   "며칠 쌓이면 과거 결과가 표시됩니다. 그 전까지는 박스와 권장가만 참고하세요.</div>")
     else:
         out.append("<div class=note>과거 자료를 아직 받지 못했습니다. 서버가 야후 금융에서 받는 중이며, 받으면 과거 결과가 표시됩니다.</div>")
     return "".join(out)
@@ -602,7 +605,7 @@ EXT_RESEARCH = (
 
 
 def render_ext(cfg, token: str, now: datetime | None = None) -> str:
-    """시간외(프리·애프터) 직접 매매 탭. 봇은 주문하지 않고, 박스와 과거 확률만 보여 준다."""
+    """시간외(프리·애프터·주간거래) 직접 매매 탭. 봇은 주문하지 않고, 박스와 과거 확률만 보여 준다."""
     e = html.escape
     now = now or datetime.now(KST)
     sess = extbox.session(now)
@@ -616,7 +619,8 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
             "<meta http-equiv=refresh content=600><meta name=referrer content=no-referrer><title>autostock 시간외</title>"
             f"<style>{CSS}</style><main><header><h1>{e(cfg.bull)} / {e(cfg.bear)} 시간외 직접 매매</h1>"
             f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>{_nav(token, 'ext', cfg.modes)}</nav>"
-            "<div class='card note'>이 탭은 주문하지 않습니다. 프리마켓(한국시간 18:00~23:30)·애프터마켓(06:00~10:00, 서머타임은 1시간 빠름)에 "
+            "<div class='card note'>이 탭은 주문하지 않습니다. 주간거래(한국시간 10:00~17:15)·프리마켓(18:00~23:30)·애프터마켓(06:00~10:00, "
+            "서머타임에는 프리·애프터가 1시간 빠름)에 "
             f"{e(cfg.bull)}·{e(cfg.bear)} 각자의 박스(위·아래 경계에 2번 이상 닿은 옆걸음 구간, 뚫릴 때까지 고정)를 그리고, {e(cfg.bull)} 가 박스 아래쪽이면 {e(cfg.bull)}, 위쪽이면 {e(cfg.bear)} 매수를 권하며 "
             "매수·매도·손절가를 알려 줍니다. 주문은 한국투자증권 앱에서 직접 하세요.</div>"
             "<h2>지금 판단 (10초마다 갱신)</h2>"

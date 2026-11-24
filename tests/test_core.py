@@ -1176,3 +1176,34 @@ def test_ext_tab_shows_spread_and_research(tmp_path, monkeypatch):
     html_ = web.ext_card(adv, cfg)
     assert "매수호가 $99.90 / 매도호가 $100.10 (차이 0.20%)" in html_ and "차이 1.01%" in html_ and "warnt" in html_
     assert "꾸준히 이익 난 방법은 없었습니다" in web.render_ext(cfg, "t", now)
+
+
+def test_ext_tab_day_market(tmp_path, monkeypatch):
+    from autostock import extbox, market_hours, web, webdata
+    from zoneinfo import ZoneInfo
+    KST = ZoneInfo("Asia/Seoul")
+    d = datetime(2026, 11, 24, 13, 0, tzinfo=KST)                                          # 화요일 한국 낮
+    assert extbox.session(d)[0] == "day" and extbox.session(d)[2].astimezone(KST).strftime("%H:%M") == "17:15"
+    assert extbox.session(datetime(2026, 11, 28, 13, 0, tzinfo=KST)) is None                # 토요일
+    assert extbox.next_session(datetime(2026, 11, 24, 9, 59, tzinfo=KST)) == ("day", datetime(2026, 11, 24, 10, 0, tzinfo=KST))
+    assert extbox.next_session(datetime(2026, 11, 24, 17, 30, tzinfo=KST))[0] == "pre"
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path))
+    now = d.astimezone(ET).replace(second=20)
+    t0 = now.replace(second=0) - timedelta(minutes=65)
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    store.merge("SOXL", _osc(t0, 65, 100, 1) + [Bar(now.replace(second=0), 100, 100.9, 100.7, 100.8, 1)])
+    store.merge("SOXS", _osc(t0, 65, 20, 0.4) + [Bar(now.replace(second=0), 19.7, 19.7, 19.65, 19.66, 1)])
+    # 주간거래 1분봉 저장 (주간거래 시간 봉만)
+    n = extbox.save_day_bars(webdata.ext_day_path(cfg), _osc(t0, 65, 100, 1) + [Bar(t0.replace(hour=10), 1, 1, 1, 1, 1)])
+    assert n == 1 and len(json.load(open(webdata.ext_day_path(cfg)))) == 65
+    yahoo = []
+    monkeypatch.setattr(extbox, "yahoo_1m", lambda s: yahoo.append(s) or [])
+    monkeypatch.setattr(market_hours, "now_et", lambda: now)
+    monkeypatch.setattr(market_hours, "ENABLED", ("regular",))
+    monkeypatch.setattr(webdata, "market", lambda c: None)
+    adv = webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)["advice"]
+    assert adv["session"] == "day" and adv["rec"] == "bear" and "day" in market_hours.ENABLED and yahoo == []
+    html_ = web.ext_card(adv, cfg)
+    assert "주간거래 · 한국시간 17:15 종료" in html_ and "SOXS 매수 권장" in html_
+    monkeypatch.setattr(market_hours, "now_et", lambda: now + timedelta(minutes=10))       # 주간거래는 10분 멈춤까지 판단
+    assert "rec" in webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)["advice"]

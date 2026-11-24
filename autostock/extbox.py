@@ -1,4 +1,4 @@
-"""시간외(프리·애프터) 직접 매매 도우미. 주문은 하지 않는다.
+"""시간외(프리·애프터·주간거래) 직접 매매 도우미. 주문은 하지 않는다.
 
 - 박스: 위·아래 경계에 각각 2번 이상 닿은 45~180분 구간 (꼬리 한 번은 무시). 종가가 2봉 연속 밖으로 나갈 때까지 고정.
 - 위치: 박스 위로 돌파 / 상단 구간(위 20%) / 가운데 / 하단 구간(아래 20%) / 아래로 이탈.
@@ -19,42 +19,40 @@ from zoneinfo import ZoneInfo
 
 log = logging.getLogger("extbox")
 ET = ZoneInfo("America/New_York")
+KST = ZoneInfo("Asia/Seoul")
 ZONE = 0.2                           # 박스 위·아래 20% = 매수 구간 (정규장 박스권과 같음)
 BOX_TARGET, BOX_STOP = 0.8, 0.1      # 목표: 반대쪽으로 폭의 80% 지점, 손절: 경계 밖 폭의 10%
 HORIZON_MIN = 120
 SLIP_PCT = 0.1                       # 시간외 호가 차이 (편도 가정)
 X_CHOICES = (1.0, 1.5, 2.0)
 SESS = {"pre": (dtime(4, 0), dtime(9, 30)), "post": (dtime(16, 0), dtime(20, 0))}
-SLABEL = {"pre": "프리마켓", "post": "애프터마켓"}
+SLABEL = {"pre": "프리마켓", "post": "애프터마켓", "day": "주간거래"}
+DAY_OPEN_KST, DAY_CLOSE_ET = dtime(10, 0), dtime(3, 15)   # 주간거래: 한국 10:00 ~ 미국 동부 03:15 (봇 설정과 같음)
+STALE_MIN = {"pre": 5, "post": 5, "day": 15}               # 주간거래는 거래가 드물어 봉 간격이 길다
 ZONES = ("above", "top", "mid", "bottom", "below")
 ZLABEL = {"above": "박스 위로 돌파", "top": "박스 상단 구간", "mid": "박스 가운데",
           "bottom": "박스 하단 구간", "below": "박스 아래로 이탈"}
 ZSHORT = {"above": "위로 돌파", "top": "상단 구간", "mid": "가운데", "bottom": "하단 구간", "below": "아래로 이탈"}
 
 
-def session(now: datetime):
-    """지금이 프리·애프터면 (이름, 시작, 끝), 아니면 None. 미국 휴장일은 모른다."""
+def _candidates(now: datetime):
     t = now.astimezone(ET)
-    if t.weekday() >= 5:
-        return None
-    for name, (a, b) in SESS.items():
-        o, c = datetime.combine(t.date(), a, ET), datetime.combine(t.date(), b, ET)
-        if o <= t < c:
-            return name, o, c
-    return None
+    for off in range(-1, 7):
+        d = t.date() + timedelta(days=off)
+        if d.weekday() >= 5:
+            continue
+        for name, (a, b) in SESS.items():
+            yield name, datetime.combine(d, a, ET), datetime.combine(d, b, ET)
+        yield "day", datetime.combine(d, DAY_OPEN_KST, KST).astimezone(ET), datetime.combine(d, DAY_CLOSE_ET, ET)
+
+
+def session(now: datetime):
+    """지금이 프리·애프터·주간거래면 (이름, 시작, 끝), 아니면 None. 미국 휴장일은 모른다."""
+    return next(((n, o, c) for n, o, c in _candidates(now) if o <= now < c), None)
 
 
 def next_session(now: datetime):
-    t = now.astimezone(ET)
-    for d in range(0, 6):
-        day = t.date() + timedelta(days=d)
-        if day.weekday() >= 5:
-            continue
-        for name in ("pre", "post"):
-            o = datetime.combine(day, SESS[name][0], ET)
-            if o > t:
-                return name, o
-    return None
+    return min(((n, o) for n, o, c in _candidates(now) if o > now), key=lambda x: x[1], default=None)
 
 
 def zone(p: float, hi: float, lo: float) -> str:
@@ -177,19 +175,18 @@ def yahoo_1m(symbol: str, timeout: float = 8) -> list:
 _cache: dict = {}
 
 
-def _load(path: str):
+def _load(path: str, step: int = 5):
+    """과거 봉과 그 봉들로 찾은 박스 (파일이 바뀔 때만 다시 계산)."""
     try:
         mt = os.path.getmtime(path)
     except OSError:
         return None, None
-    if _cache.get("hist", (None,))[0] != mt:
+    c = _cache.get(path)
+    if not c or c["mt"] != mt:
         with open(path, encoding="utf-8") as f:
             rows = [r[:5] for r in json.load(f)]
-        _cache["hist"] = (mt, rows)
-        _cache["boxes"] = find_boxes(rows, 5)[0]
-        _cache.pop("stats", None)
-        _cache.pop("box", None)
-    return mt, _cache["hist"][1]
+        c = _cache[path] = {"mt": mt, "rows": rows, "boxes": find_boxes(rows, step)[0], "stats": {}, "box": {}}
+    return c, c["rows"]
 
 
 def samples(rows: list[list], x: float, boxes: list | None = None) -> list[dict]:
@@ -283,15 +280,15 @@ def box_samples(rows: list[list], boxes: list | None = None) -> list[dict]:
     return out
 
 
-def box_stats(path: str, fee_pct: float = 0.25) -> dict | None:
+def box_stats(path: str, fee_pct: float = 0.25, step: int = 5) -> dict | None:
     """{세션: {'bottom'|'top': {n, win, loss, none, avg, old, new}}} — avg 는 수수료·호가 차이 뺀 1회 평균 %."""
-    mt, rows = _load(path)
+    c, rows = _load(path, step)
     if not rows:
         return None
-    st = _cache.setdefault("box", {})
-    if (mt, fee_pct) in st:
-        return st[(mt, fee_pct)]
-    sm = box_samples(rows, _cache.get("boxes"))
+    st = c["box"]
+    if fee_pct in st:
+        return st[fee_pct]
+    sm = box_samples(rows, c["boxes"])
     days = sorted({x["d"] for x in sm})
     mid = days[len(days) // 2] if days else ""
     cost = 2 * fee_pct + 2 * SLIP_PCT
@@ -311,20 +308,20 @@ def box_stats(path: str, fee_pct: float = 0.25) -> dict | None:
             b["avg"] = b["sum"] / b["n"]
             for k in ("old", "new"):
                 b[k] = b[k][1] / b[k][0] if b[k][0] else None
-    st[(mt, fee_pct)] = out
+    st[fee_pct] = out
     return out
 
 
-def stats(path: str, x: float, fee_pct: float = 0.25) -> dict | None:
+def stats(path: str, x: float, fee_pct: float = 0.25, step: int = 5) -> dict | None:
     """{세션: {위치: {up, dn, none, old:[up,dn], new:[up,dn], ev_up, ev_dn}}, days, since, until}"""
-    mt, rows = _load(path)
+    c, rows = _load(path, step)
     if not rows:
         return None
-    ck = (mt, x, fee_pct)
-    st = _cache.setdefault("stats", {})
+    ck = (x, fee_pct)
+    st = c["stats"]
     if ck in st:
         return st[ck]
-    sm = samples(rows, x, _cache.get("boxes"))
+    sm = samples(rows, x, c["boxes"])
     days = sorted({s["d"] for s in sm})
     mid = days[len(days) // 2] if days else ""
     cost = 2 * fee_pct + 2 * SLIP_PCT
@@ -370,12 +367,14 @@ def verdict(b: dict | None, x: float = 1.0) -> tuple[str, str]:
 
 
 def advice(bull_bars: list[list], bear_bars: list[list], now: datetime, path: str, x: float,
-           fee_pct: float = 0.25) -> dict:
-    """화면에 보여줄 판단: 두 종목의 박스, SOXL 위치에 따른 박스 매매 권장(매수·목표·손절가), 참고 확률."""
+           fee_pct: float = 0.25, day_path: str | None = None) -> dict:
+    """화면에 보여줄 판단: 두 종목의 박스, SOXL 위치에 따른 박스 매매 권장(매수·목표·손절가), 참고 확률.
+    과거 통계: 프리·애프터는 야후 5분봉(path), 주간거래는 서버가 모은 1분봉(day_path)."""
     s = session(now)
     nxt = next_session(now)
-    st = stats(path, x, fee_pct)
-    bst = box_stats(path, fee_pct)
+    hp, step = (day_path, 1) if s and s[0] == "day" and day_path else (path, 5)
+    st = stats(hp, x, fee_pct, step)
+    bst = box_stats(hp, fee_pct, step)
     out: dict = {"x": x, "session": s[0] if s else None, "close": s[2] if s else None,
                  "next": nxt, "stats": st, "bstats": bst}
     if not bull_bars:
@@ -400,7 +399,8 @@ def advice(bull_bars: list[list], bear_bars: list[list], now: datetime, path: st
         out["bear_lv"] = {"buy_max": bear_last * (1 + (last - (hi - ZONE * (hi - lo))) / last),
                           "target": bear_last * (1 + BOX_TARGET * w - (hi - last) / last),
                           "stop": bear_last * (1 - BOX_STOP * w - (hi - last) / last)}
-    if not s or out["age_min"] > 5:
+    out["stale"] = bool(s) and out["age_min"] > STALE_MIN[s[0]]
+    if not s or out["stale"]:
         return out
     b = ((st or {}).get("by") or {}).get(s[0], {}).get(z)
     side, why = verdict(b, x)
@@ -424,3 +424,23 @@ def advice(bull_bars: list[list], bear_bars: list[list], now: datetime, path: st
         if gain < cost * 1.5:
             out["rec_thin"] = True                    # 목표까지 남은 폭이 수수료에 비해 작음
     return out
+
+
+def save_day_bars(path: str, bars, keep_days: int = 60) -> int:
+    """주간거래 1분봉을 모아 둔다 (야후에는 주간거래 시세가 없어 과거 통계를 직접 쌓는다). 저장된 날 수를 돌려준다."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = {int(r[0]): r for r in json.load(f)}
+    except (FileNotFoundError, ValueError):
+        d = {}
+    for b in bars:
+        if session(b.ts) and session(b.ts)[0] == "day":
+            t = int(b.ts.timestamp())
+            d[t] = [t, b.open, b.high, b.low, b.close]
+    cut = time.time() - keep_days * 86400
+    rows = [d[t] for t in sorted(d) if t >= cut]
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rows, f)
+    os.replace(tmp, path)
+    return len({datetime.fromtimestamp(r[0], KST).date() for r in rows})
