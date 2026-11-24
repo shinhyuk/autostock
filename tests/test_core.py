@@ -220,6 +220,8 @@ class FakeHTTP:
             return self._resp({"output1": rows})
         if name == "inquire-asking-price":
             return self._resp({"output2": {}})
+        if name == "inquire-present-balance":
+            return self._resp(self.present)
         if name == "inquire-ccnl":
             return self._resp({"output": [{"odno": "77", "ft_ccld_unpr3": "30.05"}]})
         raise AssertionError(name)
@@ -1212,3 +1214,23 @@ def test_ext_tab_day_market(tmp_path, monkeypatch):
     assert "주간거래 · 한국시간 17:15 종료" in html_ and "SOXS 매수 권장" in html_
     monkeypatch.setattr(market_hours, "now_et", lambda: now + timedelta(minutes=10))       # 주간거래는 10분 멈춤까지 판단
     assert "rec" in webdata.ext_chart(cfg, "SOXL", 120, store, 1.0)["advice"]
+
+
+def test_account_total_assets_card(kis, tmp_path):
+    from autostock import web, webdata
+    c, _ = kis("real")
+    c.http.present = ({"output1": [], "output2": [{"crcy_cd": "USD", "frcr_dncl_amt_2": "2105.59", "frcr_drwg_psbl_amt_1": "2105.59",
+                                              "frst_bltn_exrt": "1450.5"}],
+                  "output3": {"tot_asst_amt": "13004361", "evlu_amt_smtl_amt": "0", "tot_evlu_pfls_amt": "0",
+                              "dncl_amt": "9950252", "tot_dncl_amt": "13004361", "wdrw_psbl_tot_amt": "12900000"}})
+    sm = KISBroker(c, "12345678").account_summary()
+    assert c.http.calls[-1][1] == "CTRP6504R"
+    assert sm["total_krw"] == 13004361 and sm["usd_cash"] == 2105.59 and sm["cash_krw"] == 9950252
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), capital_krw=2_000_000, modes=("live",))
+    webdata._acct_cache["live"] = {"source": "x", "holdings": [], "cash": 2105.59, "summary": sm, "at": 0}
+    page = web.render(cfg, "live", "t")
+    assert "총 평가금액" in page and "13,004,361원" in page and "$2,105.59 (≈ 3,054,158원)" in page
+    assert "운용금 2,000,000원만" in page and "봇 운용 자산" in page
+    webdata._acct_cache["live"] = {"source": "x", "holdings": [], "summary": {"error": "KISError: x"}, "at": 0}
+    assert "계좌 자산을 불러오지 못했습니다" in web.render(cfg, "live", "t")
+    webdata._acct_cache.clear()

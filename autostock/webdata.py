@@ -136,9 +136,14 @@ def _fetch_account(cfg, mode: str) -> dict:
             except Exception as e:                # 주문가능금액은 부가 정보
                 log.info("주문가능금액 조회 실패: %s", e)
                 cash = None
+            try:
+                summary = br.account_summary()
+            except Exception as e:                # 계좌 총자산도 부가 정보
+                log.info("계좌 자산 조회 실패: %s", e)
+                summary = {"error": f"{type(e).__name__}: {e}"[:160]}
         finally:
             _kis_lock.release()
-        return {"source": "증권사 잔고 (한국투자증권)", "holdings": holds, "cash": cash, "at": time.time()}
+        return {"source": "증권사 잔고 (한국투자증권)", "holdings": holds, "cash": cash, "summary": summary, "at": time.time()}
     except Exception as e:
         return {"source": "증권사 잔고", "holdings": [], "error": f"{type(e).__name__}: {e}"[:200], "at": time.time()}
 

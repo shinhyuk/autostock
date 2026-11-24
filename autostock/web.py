@@ -165,6 +165,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
            f"<style>{CSS}</style><main><header><h1>{e(' / '.join(cfg.symbols))} 자동매매</h1>"
            f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>"]
     out.append(_nav(token, mode, cfg.modes) + "</nav>")
+    if mode != "paper":                               # 모의투자·실계좌: 증권사 실제 계좌 자산을 맨 위에
+        out.append(_account_card(cfg, mode))
     if not running:
         links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
         out.append(f"<div class='card note'>이 탭({MODES[mode]})은 지금 실행 중이 아니라 지난 기록만 보입니다. 현재 실행 중: {links}</div>")
@@ -202,7 +204,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"<div class=ends><span>손실한도 -{cfg.daily_max_loss_krw:,.0f}</span><span>목표 +{cfg.daily_target_krw:,.0f}</span></div>"
                f"<div class=stats><div><div class=k>거래</div><div class=v>{s['trades']}회</div></div>"
                f"<div><div class=k>승 / 패</div><div class=v>{s['wins']} / {s['losses']}</div></div>"
-               f"<div><div class=k>현재 자산</div><div class=v>{equity * fx:,.0f}</div></div></div>"
+               f"<div><div class=k>{'봇 운용 자산' if mode != 'paper' else '현재 자산'}</div><div class=v>{equity * fx:,.0f}</div></div></div>"
                + (f"<div class=note>시작 {cfg.capital_krw:,.0f}원 ({_kst(led['start'], '%m-%d %H:%M')}) → 누적 실현 "
                   f"<b class='{cls(led['realized_usd'])}'>{won(led['realized_usd'])}</b> · {led.get('trades', 0)}건 · "
                   f"채우지 않고 이 자산으로 계속 매매</div>" if led else "")
@@ -638,6 +640,34 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
               f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
               f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
+
+
+def _account_card(cfg, mode: str) -> str:
+    """증권사 계좌 전체 자산 (봇 장부가 아니라 실제 잔고). 30초마다 백그라운드에서 조회한 값."""
+    e = html.escape
+    acct = webdata._acct_cache.get(mode) or {}
+    sm = acct.get("summary") or {}
+    head = "<h2>계좌 자산 (한국투자증권 실제 잔고)</h2><section class='card hero'>"
+    if not acct:
+        return head + "<div class=note>계좌를 불러오는 중입니다 (30초마다 갱신).</div></section>"
+    if acct.get("error") or sm.get("error") or sm.get("total_krw") is None:
+        return head + f"<div class=note>계좌 자산을 불러오지 못했습니다: {e(acct.get('error') or sm.get('error') or '총자산 값 없음')}</div></section>"
+    w = lambda v: f"{v:,.0f}원" if v is not None else "-"   # noqa: E731
+    rate = sm.get("usd_rate") or cfg.usdkrw
+    usd = sm.get("usd_cash")
+    pnl = sm.get("pnl_krw")
+    rows = [("원화 예수금", w(sm.get("cash_krw"))),
+            ("달러 예수금", f"${usd:,.2f} (≈ {usd * rate:,.0f}원)" if usd is not None else "-"),
+            ("주문 가능 달러", f"${acct['cash']:,.2f}" if acct.get("cash") is not None else
+             (f"${sm['usd_orderable']:,.2f}" if sm.get("usd_orderable") is not None else "-")),
+            ("주식 평가금액", w(sm.get("stock_krw"))),
+            ("평가손익", f"<span class={'up' if (pnl or 0) > 0 else 'dn' if (pnl or 0) < 0 else 'mut'}>{pnl:+,.0f}원</span>" if pnl is not None else "-"),
+            ("출금 가능", w(sm.get("withdrawable_krw")))]
+    return (head + f"<div class=k>총 평가금액</div><div class=big>{sm['total_krw']:,.0f}원</div>"
+            f"<dl class=kv>{''.join(f'<dt>{k}</dt><dd>{v}</dd>' for k, v in rows)}</dl>"
+            f"<div class=note>봇은 이 중 운용금 {cfg.capital_krw:,.0f}원만 씁니다"
+            f"{' (나머지는 레버리지 ETF 기본예탁금으로 둠)' if mode == 'live' else ''} · 환율 {rate:,.1f}원 · "
+            f"{datetime.fromtimestamp(acct['at'], KST):%H:%M:%S} 기준</div></section>")
 
 
 def _equity_svg(pts: list[float], fx: float) -> str:

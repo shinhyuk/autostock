@@ -250,6 +250,33 @@ class KISBroker:
                             "pnl_pct": _num(r.get("evlu_pfls_rt")) if r.get("evlu_pfls_rt") else None}
         return sorted(out.values(), key=lambda x: x["symbol"])
 
+    def account_summary(self) -> dict:
+        """계좌 전체 자산 (원화 환산): 총자산·원화 예수금·달러 예수금·주식 평가금액·평가손익. 해외주식 체결기준현재잔고."""
+        j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-present-balance",
+                        "CTRP6504R" if self.v == "T" else "VTRP6504R",
+                        {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "WCRC_FRCR_DVSN_CD": "01",
+                         "NATN_CD": "000", "TR_MKET_CD": "00", "INQR_DVSN_CD": "00"})
+        o3 = j.get("output3") or {}
+        if isinstance(o3, list):
+            o3 = o3[0] if o3 else {}
+        usd = next((r for r in (j.get("output2") or []) if (r.get("crcy_cd") or "").strip() == "USD"), {})
+        g = lambda d, *ks: next((_num(d[k]) for k in ks if d.get(k) not in (None, "")), None)   # noqa: E731
+        out = {"total_krw": g(o3, "tot_asst_amt"),
+               "stock_krw": g(o3, "evlu_amt_smtl_amt", "evlu_amt_smtl"),
+               "buy_krw": g(o3, "pchs_amt_smtl_amt", "pchs_amt_smtl"),
+               "pnl_krw": g(o3, "tot_evlu_pfls_amt", "evlu_pfls_amt_smtl_amt", "evlu_pfls_amt_smtl"),
+               "cash_krw": g(o3, "dncl_amt"),
+               "deposit_krw": g(o3, "tot_dncl_amt"),
+               "withdrawable_krw": g(o3, "wdrw_psbl_tot_amt"),
+               "usd_cash": g(usd, "frcr_dncl_amt_2"),
+               "usd_orderable": g(usd, "frcr_drwg_psbl_amt_1"),
+               "usd_rate": g(usd, "frst_bltn_exrt")}
+        if out["total_krw"] is None and out["deposit_krw"] is not None:
+            out["total_krw"] = out["deposit_krw"] + (out["stock_krw"] or 0)
+        if all(v is None for v in out.values()):
+            raise KISError(f"자산 응답에 값이 없음: {list(o3)[:10]}")
+        return out
+
     def buying_power(self, symbol: str, price: float) -> float | None:
         """주문 가능 외화 금액(USD). 응답 항목을 확인하지 못하면 None."""
         j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-psamount", self.v + "TTS3007R",
