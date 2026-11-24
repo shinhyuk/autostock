@@ -74,6 +74,24 @@ def supervise(modes) -> int:
             p.terminate()
 
 
+def manual_buy(market, broker, sym: str, qty: int = 1, out=print) -> int:
+    """지금 열린 거래 시간(정규장·프리·애프터·주간거래)에 지정가로 사서 보유만 한다. 봇 설정과 무관한 수동 주문."""
+    from . import market_hours
+    market_hours.ENABLED = ("regular", "pre", "post", "day")      # 지금 시간대에 맞는 주문 방식을 고르도록
+    sess = market_hours.current(market_hours.now_et())
+    if not sess:
+        out("지금은 주문할 수 있는 거래 시간이 아닙니다 (주간거래 10:00~17:15, 프리 18:00~, 정규 23:30~, 애프터 ~09:55).")
+        return 2
+    last = market.quote(sym).last
+    out(f"{market_hours.LABEL[sess.name]} · {sym} 현재가 ${last} — {qty}주 지정가 매수…")
+    f = broker.buy(sym, qty, last)
+    if not f:
+        out("[FAIL] 체결되지 않아 주문을 취소했습니다. 달러 잔고·거래 신청·기본예탁금 요건을 확인하세요.")
+        return 1
+    out(f"[OK] {f.qty}주 @ ${f.price} 체결. 팔지 않고 보유합니다.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="autostock", description="SOXL/SOXS AI 단타 자동매매")
     ap.add_argument("--mode", choices=["paper", "kis-demo", "live"], help=".env의 MODE 대신 사용")
@@ -87,6 +105,8 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="키와 연결만 점검하고 종료 (주문 없음)")
     ap.add_argument("--order-test", action="store_true",
                     help="kis-demo/live 모드에서 1주 매수→매도로 주문 경로 확인")
+    ap.add_argument("--buy", metavar="SYMBOL", help="실계좌/모의투자에서 이 종목을 지금 사서 보유만 함 (팔지 않음)")
+    ap.add_argument("--qty", type=int, default=1, help="--buy 수량 (기본 1주)")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
@@ -101,9 +121,9 @@ def main() -> int:
         return 2
     from . import market_hours
     market_hours.ENABLED = cfg.sessions
-    if not a.mode and len(cfg.modes) > 1 and not (a.simulate or a.check or a.order_test):
+    if not a.mode and len(cfg.modes) > 1 and not (a.simulate or a.check or a.order_test or a.buy):
         return supervise(cfg.modes)
-    brain = None if a.check or a.order_test else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
+    brain = None if a.check or a.order_test or a.buy else RuleBrain(cfg) if a.brain == "rule" else ClaudeBrain(cfg)
 
     if a.simulate:
         from .brokers.paper import FakeMarket, PaperBroker
@@ -143,6 +163,9 @@ def main() -> int:
     market = KISMarket(md)
     if a.check:
         return check(cfg, market, client)
+    if a.buy and cfg.mode == "paper":
+        print("--buy 는 kis-demo 또는 live 모드에서만 됩니다.", file=sys.stderr)
+        return 2
     if a.order_test and cfg.mode == "paper":
         print("주문 테스트는 kis-demo 또는 live 모드에서만 됩니다. 먼저 ./bot mode kis-demo", file=sys.stderr)
         return 2
@@ -155,6 +178,8 @@ def main() -> int:
         c = need
         broker = KISBroker(md if c.env == md.env else client(c), c.account_no, c.account_product,
                            book=market.book)
+        if a.buy:
+            return manual_buy(market, broker, a.buy.upper(), max(1, a.qty))
         if a.order_test:
             from .market_hours import is_open, now_et
             if not is_open(now_et()):

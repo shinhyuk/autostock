@@ -3,6 +3,7 @@
 #   ./bot setup            자동 실행 + 자동 업데이트 등록 (처음 한 번)
 #   ./bot check            키/연결 점검 (주문 없음)
 #   ./bot ordertest [모드] kis-demo/live 로 1주 매수→매도 테스트 (장중에만)
+#   ./bot buy [종목] [수량]  실계좌에서 지금 사서 보유만 (기본 SOXL 1주, 팔지 않음)
 #   ./bot status           실행 상태와 오늘 손익
 #   ./bot logs             실시간 로그 (Ctrl+C 로 나가기)
 #   ./bot mode <paper|kis-demo|live>   모드 변경 후 재시작 (동시 실행: ./bot mode kis-demo,live)
@@ -106,6 +107,13 @@ ordertest)
     [[ $a == LIVE ]] || { echo "취소됨"; exit 1; }
   fi
   $PY -m autostock --mode "$m" --order-test
+  ;;
+buy)
+  sym=${2:-SOXL}; qty=${3:-1}
+  [[ $sym =~ ^[A-Za-z]{1,6}$ && $qty =~ ^[0-9]{1,3}$ ]] || { echo "사용법: ./bot buy SOXL 1"; exit 1; }
+  read -r -p "실계좌에서 ${sym^^} ${qty}주를 지금 사서 보유합니다 (팔지 않음). 계속하려면 y: " a
+  [[ $a == y ]] || { echo "취소됨"; exit 1; }
+  $PY -m autostock --mode live --buy "$sym" --qty "$qty"
   ;;
 status)
   echo "모드: $(mode)   서비스: $(systemctl is-active autostock || true)   코드: $(git log -1 --format='%h %s')"

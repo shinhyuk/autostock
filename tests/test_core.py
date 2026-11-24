@@ -1234,3 +1234,16 @@ def test_account_total_assets_card(kis, tmp_path):
     webdata._acct_cache["live"] = {"source": "x", "holdings": [], "summary": {"error": "KISError: x"}, "at": 0}
     assert "계좌 자산을 불러오지 못했습니다" in web.render(cfg, "live", "t")
     webdata._acct_cache.clear()
+
+
+def test_manual_buy_holds_without_selling(kis, monkeypatch):
+    from autostock import market_hours
+    from autostock.__main__ import manual_buy
+    c, b = kis("real")
+    monkeypatch.setattr(market_hours, "now_et", lambda: datetime(2026, 11, 24, 6, 0, tzinfo=ET))   # 프리마켓
+    msgs = []
+    assert manual_buy(KISMarket(c), b, "SOXL", 1, out=msgs.append) == 0
+    names = [x[1] for x in c.http.calls]
+    assert "TTTT1002U" in names and "TTTT1006U" not in names and "[OK]" in msgs[-1]           # 사고 팔지 않음
+    monkeypatch.setattr(market_hours, "now_et", lambda: datetime(2026, 11, 28, 12, 0, tzinfo=ET))  # 토요일
+    assert manual_buy(KISMarket(c), b, "SOXL", 1, out=msgs.append) == 2
