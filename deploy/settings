@@ -96,8 +96,9 @@ PAPER__CAPITAL_KRW=10000000
 PAPER__DAILY_TARGET_KRW=1000000
 PAPER__DAILY_MAX_LOSS_KRW=3000000
 PAPER__ORB_MINUTES=20
-PAPER__ORB_WINDOW_MIN=60
-PAPER__ORB_MAX_TRADES=2
+# 재진입 실험: 하루 종일 돌파 진입 허용, 하루 5회 (최근 1달 +48.6% → +69.4%, 60일 5분봉은 +9.4% → -3.1% — 장세에 따라 갈림)
+PAPER__ORB_WINDOW_MIN=390
+PAPER__ORB_MAX_TRADES=5
 PAPER__ORB_STOP_MODE=mid
 PAPER__ORB_STOP_PCT=1.5
 # 11/24 피드백: 돌파 익절 10% → 6% 실험 (20일 엔진 재생 모의 설정 기준 +408만 → +447만, 11/24 -30만 → -7만). 실계좌도 6% (사용자 요청), 모의투자는 10% 유지하고 비교
