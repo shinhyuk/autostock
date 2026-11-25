@@ -1342,3 +1342,33 @@ def test_paper_always_trades_fixed_qty(tmp_path, monkeypatch):
         m.now += timedelta(minutes=1)
         e.tick()
     assert e.st.trades >= 1 and e.st.open is not None                                       # 30분 뒤 정리하고 바로 다시 매수
+
+
+def test_news_pick_drives_paper_direction_and_page(tmp_path, monkeypatch):
+    from autostock import market_hours, news, web
+    monkeypatch.setattr(market_hours, "ENABLED", ("regular", "pre", "post", "day"))
+    calls = []
+    monkeypatch.setattr(news, "headlines", lambda **k: [{"ts": 0, "publisher": "X", "title": "Nvidia falls on export curbs"}])
+    def fake_judge(cfg, heads, client=None):
+        calls.append(heads)
+        return news.NewsPick(pick="SOXS", strength=0.8, reason="수출 규제 악재")
+    monkeypatch.setattr(news, "judge", fake_judge)
+    now0 = datetime(2026, 1, 5, 5, 0, 30, tzinfo=ET)                                       # 프리마켓, SOXL 은 오르는 중
+
+    class M:
+        def __init__(self): self.now, self.px = now0, {"SOXL": 30.0, "SOXS": 20.0}
+        def bars(self, s, n=120):
+            return [Bar(self.now.replace(second=0) - timedelta(minutes=20 - i), 29 + i * .05, 30, 29, 29 + i * .05, 1) for i in range(20)]
+        def quote(self, s): return Quote(s, self.px[s], self.px[s])
+    m = M()
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="always", fixed_qty=10,
+                              news_pick=True, sessions=("regular", "pre", "post", "day"), modes=("paper",))
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    assert e.st.open.symbol == "SOXS"                                                       # SOXL 이 올라도 뉴스 판단대로
+    for _ in range(40):
+        m.now += timedelta(minutes=1)
+        e.tick()
+    assert len(calls) == 1                                                                  # 세션마다 한 번만 판단
+    page = web.render(cfg, "paper", "t")
+    assert "SOXS 추천 (내릴 쪽)" in page and "수출 규제 악재" in page

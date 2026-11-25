@@ -102,6 +102,7 @@ class Settings:
     box_stop: float = 0.1               # 경계 바깥으로 범위 폭의 이 비율만큼 벗어나면 손절
     box_max: int = 1                    # 세션당 박스권 거래 수
     box_min_width: float = 5.0          # 범위 폭(%)이 이보다 좁은 날은 박스권 매매 안 함(수수료에 먹힘)
+    news_pick: bool = False             # 가상매매 실험: 시간외 '항상 매매' 방향을 뉴스 판단(SOXL/SOXS)으로
     fixed_qty: int = 0                  # >0: '항상 매매(always)' 전략이 사는 고정 수량 (가상매매용)
     box_peer_max: float = 0.0           # >0: 동조 종목(엔비디아·SOXX)이 개장가 대비 반대로 이 % 넘게 움직였으면 박스권 진입 안 함
     box_gap_max: float = 0.0            # >0: 개장 갭이 반대 방향으로 이 % 넘으면 그 방향 박스권 진입 안 함 (갭 하락 날 SOXL 반등 매수 등)
@@ -181,6 +182,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         box_stop=_f("BOX_STOP", 0.1),
         box_max=_i("BOX_MAX", 1),
         fixed_qty=_i("FIXED_QTY", 0),
+        news_pick=_s("NEWS_PICK", "false").lower() in ("1", "true", "yes"),
         box_peer_max=_f("BOX_PEER_MAX", 0.0),
         box_gap_max=_f("BOX_GAP_MAX", 0.0),
         box_min_width=_f("BOX_MIN_WIDTH", 5.0),

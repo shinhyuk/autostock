@@ -86,6 +86,8 @@ PAPER__STRATEGY=orb
 # 사용자 요청: 정규장 밖에서는 쉬지 않고 사고판다 (가짜 돈, 100주 고정). 정규장은 기존 돌파·박스권·노이즈
 PAPER__EXT_STRATEGY=always
 PAPER__FIXED_QTY=100
+# 뉴스 호재·악재 실험: 주간거래·프리마켓 시작 때 Claude 가 기사 제목으로 SOXL/SOXS 를 고르고(하루 2번 호출), 그 방향으로만 산다
+PAPER__NEWS_PICK=true
 PAPER__SESSIONS=regular,pre,post,day
 PAPER__BULL_SYMBOL=SOXL
 PAPER__BEAR_SYMBOL=SOXS

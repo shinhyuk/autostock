@@ -169,6 +169,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         out.append(_account_card(cfg, mode))
         out.append(_test_status(cfg, mode, events, live))
     else:
+        if cfg.news_pick:
+            out.append(_news_card(cfg))
         out.append(f"<div class='card note' style='margin-top:10px'>서버에 적용된 설정: 세션 "
                    f"{e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))} · 정규장 밖 전략 "
                    f"{e({'box': '시간외 고정 박스', 'always': f'항상 매매 ({cfg.fixed_qty or "자동"}주, 쉬지 않고 사고팜)', 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
@@ -655,6 +657,54 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
               f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
               f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
+
+
+def _news_outcome(cfg, ts_iso: str):
+    """뉴스 판단 시각의 SOXL 가격 → 그다음 정규장 종가 변화(%). 야후 5분봉 기록으로 계산, 아직이면 None."""
+    from . import extbox
+    _, rows = extbox._load(webdata.ext_hist_path(cfg))
+    if not rows:
+        return None
+    try:
+        t0 = datetime.fromisoformat(ts_iso).timestamp()
+    except ValueError:
+        return None
+    start = next((r for r in rows if r[0] >= t0), None)
+    end = next((r for r in rows if r[0] > t0 and datetime.fromtimestamp(r[0], ET).strftime("%H:%M") == "15:55"), None)
+    return (end[4] / start[4] - 1) * 100 if start and end else None
+
+
+def _news_card(cfg) -> str:
+    """뉴스 호재·악재 판단: 지금 고른 종목, 근거, 지난 판단의 적중 여부."""
+    from . import news
+    e = html.escape
+    hist = news.history(os.path.join(cfg.data_dir, "news_picks.jsonl"))
+    out = ["<h2>뉴스 판단 (주간거래·프리마켓 시작 때 Claude 가 SOXL/SOXS 고름)</h2><section class=card>"]
+    if not hist:
+        out.append("<div class=note>아직 판단이 없습니다. 다음 주간거래(한국 10:00)나 프리마켓(18:00) 시작 때 처음 고릅니다.</div></section>")
+        return "".join(out)
+    last = hist[-1]
+    cls_ = "up" if last["pick"] == cfg.bull else "dn" if last["pick"] == (cfg.bear or "") else "mut"
+    word = {cfg.bull: "오를 쪽", (cfg.bear or "-"): "내릴 쪽"}.get(last["pick"], "중립")
+    out.append(f"<div class=sub>{_kst(last['ts'], '%m-%d %H:%M')} 판단 · 세기 {last['strength']:.2f}</div>"
+               f"<div class='big2 {cls_}'>{e(last['pick'])} 추천 ({word})</div><div class=note>{e(last['reason'])}</div>")
+    if last.get("headlines"):
+        out.append("<details><summary>읽은 기사 제목</summary><div class=note>" +
+                   "<br>".join(e(h) for h in last["headlines"]) + "</div></details>")
+    rows, hit, n = [], 0, 0
+    for x in reversed(hist):
+        ch = _news_outcome(cfg, x["ts"]) if x["pick"] != "NEUTRAL" else None
+        res = "-"
+        if ch is not None:
+            ok = (ch > 0) == (x["pick"] == cfg.bull)
+            hit, n = hit + ok, n + 1
+            res = f"<span class={'up' if ok else 'dn'}>{'맞음' if ok else '틀림'}</span>"
+        rows.append(f"<tr><td>{_kst(x['ts'], '%m-%d %H:%M')}</td><td>{e(x['pick'])}</td>"
+                    f"<td class=r>{'-' if ch is None else f'{ch:+.1f}%'}</td><td class=r>{res}</td></tr>")
+    out.append(f"<h3>지난 판단 · 적중 {hit}/{n}{f' ({hit / n * 100:.0f}%)' if n else ''}</h3><table>"
+               f"<tr><th>판단 시각</th><th>추천</th><th class=r>{e(cfg.bull)} → 정규장 종가</th><th class=r>결과</th></tr>"
+               + "".join(rows[:12]) + "</table><div class=note>결과는 판단 시각 가격에서 그다음 정규장 종가까지 SOXL 이 오르면 SOXL 맞음, 내리면 SOXS 맞음.</div></section>")
+    return "".join(out)
 
 
 def _code_version() -> str:

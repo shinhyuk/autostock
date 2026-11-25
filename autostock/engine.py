@@ -68,7 +68,8 @@ class Engine:
         self.orb: dict[str, dict] = {}               # 세션별 개장 범위와 동조 종목 시가
         self.orb_status = ""
         self._orb_minute: datetime | None = None
-        self._extbox_used: set = set()                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
+        self._extbox_used: set = set()
+        self._news = None                             # 뉴스 판단 기록 (가상매매 실험)                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
         self._noise_cp: tuple | None = None
         self.noise_book = None
         if cfg.noise:
@@ -687,13 +688,21 @@ class Engine:
                 log.info("야후 1분봉 실패: %s", e)
         mom = (bars[-1].close / bars[-16].close - 1) * 100 if len(bars) >= 16 else 0.0
         side = c.bull if mom >= 0 or not c.bear else c.bear
+        why = f"{c.bull} 최근 15분 {mom:+.2f}%"
+        if c.news_pick and sess and sess.name in ("day", "pre") and c.bear:
+            from .news import NewsBook
+            if self._news is None:
+                self._news = NewsBook(os.path.join(c.data_dir, "news_picks.jsonl"))
+            np_ = self._news.get(market_hours.session_key(now), c)
+            if np_["pick"] in (c.bull, c.bear):
+                side, why = np_["pick"], f"뉴스 판단 {np_['pick']} (세기 {np_['strength']:.2f}): {np_['reason'][:60]}"
         try:
             price = self.market.quote(side).last
         except Exception as e:
             self.orb_status = f"항상 매매: {side} 시세 없음 ({e})"
             return
         d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100, stop_loss_pct=1.5, take_profit_pct=2.0,
-                     reason=f"항상 매매: {c.bull} 최근 15분 {mom:+.2f}% → {side} (손절 1.5% · 익절 2% · 30분 뒤 정리)")
+                     reason=f"항상 매매: {why} → {side} (손절 1.5% · 익절 2% · 30분 뒤 정리)")
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
         self._enter(d, price, trail=0, kind="always", qty=c.fixed_qty or None)
         self.orb_status = "보유 중 (항상 매매)" if self.st.open else "항상 매매: 매수 실패"
