@@ -1320,3 +1320,25 @@ def test_paper_chart_extended_hours_shows_fixed_box_not_old_range(tmp_path, monk
     old = dataclasses.replace(cfg, sessions=("regular",), ext_strategy="")
     assert webdata.chart(old, "paper", "SOXL", 120, store, None, live, [])["lines"] == []    # 시간외엔 지난 범위 안 그림
     assert "세션 정규장, 프리마켓, 애프터마켓, 주간거래 · 정규장 밖 전략 시간외 고정 박스" in web.render(cfg, "paper", "t")
+
+
+def test_paper_always_trades_fixed_qty(tmp_path, monkeypatch):
+    from autostock import market_hours
+    monkeypatch.setattr(market_hours, "ENABLED", ("regular", "pre", "post", "day"))
+    now0 = datetime(2026, 1, 5, 17, 0, 30, tzinfo=ET)                                       # 애프터마켓
+
+    class M:
+        def __init__(self): self.now, self.px = now0, {"SOXL": 30.0, "SOXS": 20.0}
+        def bars(self, s, n=120):
+            return [Bar(self.now.replace(second=0) - timedelta(minutes=20 - i), 29 + i * .05, 30, 29, 29 + i * .05, 1) for i in range(20)]
+        def quote(self, s): return Quote(s, self.px[s], self.px[s])
+    m = M()
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="always", fixed_qty=100,
+                              sessions=("regular", "pre", "post", "day"), fee_pct=0.1, capital_krw=10_000_000)
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    assert e.st.open.symbol == "SOXL" and e.st.open.qty == 100 and e.st.open.kind == "always"   # 오르는 중 → SOXL 100주
+    for _ in range(32):
+        m.now += timedelta(minutes=1)
+        e.tick()
+    assert e.st.trades >= 1 and e.st.open is not None                                       # 30분 뒤 정리하고 바로 다시 매수

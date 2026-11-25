@@ -252,8 +252,8 @@ class Engine:
 
     # ── 주문 ────────────────────────────────────────────────
     def _enter(self, d: Decision, last: float, atr_pct: float | None = None, trail: float | None = None,
-               kind: str = "") -> None:
-        qty = self.risk.size(self.st, d, last, self.equity_usd)
+               kind: str = "", qty: int | None = None) -> None:
+        qty = qty or self.risk.size(self.st, d, last, self.equity_usd)
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
             return
@@ -655,6 +655,49 @@ class Engine:
             seen.add(self.st.open.entry_ts)
         return len(seen)
 
+    # ── 항상 매매 (가상매매 실험: 쉬지 않고 사고판다) ───────────
+    def _always_tick(self, now: datetime) -> None:
+        """포지션이 없으면 바로 산다. 방향은 SOXL 최근 15분 흐름(오르면 SOXL, 내리면 SOXS).
+        고정 수량(FIXED_QTY, 기본 100주), 손절 1.5% · 익절 2% · 30분 지나면 정리하고 다시 산다."""
+        from . import extbox
+        c = self.cfg
+        minute = now.replace(second=0, microsecond=0)
+        if self._orb_minute == minute:
+            return
+        self._orb_minute = minute
+        if t := self.st.open:
+            held = (now - datetime.fromisoformat(t.entry_ts)).total_seconds() / 60
+            if t.kind == "always" and held >= 30:
+                self._close("항상 매매: 30분 보유 후 정리", self.market.quote(t.symbol).last)
+            else:
+                self.orb_status = f"보유 중 (항상 매매, {held:.0f}분째)"
+            return
+        if minutes_to_close(now) < c.no_entry_before_close_min:
+            self.orb_status = "마감 전 진입 금지"
+            return
+        sess = market_hours.current(now)
+        try:
+            bars = [b for b in self.market.bars(c.bull, 30) if b.ts < minute]
+        except Exception:
+            bars = []
+        if (not bars or (now - bars[-1].ts).total_seconds() > 600) and sess and sess.name in ("pre", "post"):
+            try:
+                bars = [b for b in extbox.yahoo_1m(c.bull) if b.ts < minute][-30:]
+            except Exception as e:
+                log.info("야후 1분봉 실패: %s", e)
+        mom = (bars[-1].close / bars[-16].close - 1) * 100 if len(bars) >= 16 else 0.0
+        side = c.bull if mom >= 0 or not c.bear else c.bear
+        try:
+            price = self.market.quote(side).last
+        except Exception as e:
+            self.orb_status = f"항상 매매: {side} 시세 없음 ({e})"
+            return
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100, stop_loss_pct=1.5, take_profit_pct=2.0,
+                     reason=f"항상 매매: {c.bull} 최근 15분 {mom:+.2f}% → {side} (손절 1.5% · 익절 2% · 30분 뒤 정리)")
+        self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
+        self._enter(d, price, trail=0, kind="always", qty=c.fixed_qty or None)
+        self.orb_status = "보유 중 (항상 매매)" if self.st.open else "항상 매매: 매수 실패"
+
     # ── 시간외 고정 박스 전략 (프리·애프터·주간거래) ───────────
     def _extbox_tick(self, now: datetime) -> None:
         """결과 페이지 '시간외' 탭과 같은 규칙: 위·아래 경계에 2번 이상 닿은 고정 박스에서 SOXL 이 아래 20% 면 SOXL,
@@ -841,7 +884,7 @@ class Engine:
         sess = market_hours.current(now)
         label = market_hours.LABEL.get(sess.name, "") if sess else ""
         strat = self._strategy(now)
-        sname = {"orb": "개장 범위 돌파", "box": "시간외 고정 박스"}.get(strat, "Claude 판단")
+        sname = {"orb": "개장 범위 돌파", "box": "시간외 고정 박스", "always": "항상 매매"}.get(strat, "Claude 판단")
         pnl = f"세션 실현 {self._krw(st.realized_usd)}"
         if t := st.open:
             last = self._last_price or t.entry_price
@@ -914,6 +957,9 @@ class Engine:
             return
         if self._strategy(now) == "box":
             self._extbox_tick(now)
+            return
+        if self._strategy(now) == "always":
+            self._always_tick(now)
             return
         since = None if self.last_decision_at is None else (now - self.last_decision_at).total_seconds()
         due = since is None or since >= self.cfg.decision_interval_sec

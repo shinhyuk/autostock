@@ -171,7 +171,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     else:
         out.append(f"<div class='card note' style='margin-top:10px'>서버에 적용된 설정: 세션 "
                    f"{e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))} · 정규장 밖 전략 "
-                   f"{e({'box': '시간외 고정 박스', 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
+                   f"{e({'box': '시간외 고정 박스', 'always': f'항상 매매 ({cfg.fixed_qty or "자동"}주, 쉬지 않고 사고팜)', 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
                    f"코드 {e(_code_version())}</div>")
     if not running:
         links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
@@ -243,6 +243,10 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                       f"시간외 고정 박스 — 위·아래 경계에 2번 이상 닿은 옆걸음 구간에서 {e(cfg.bull)} 가 아래 20% 면 {e(cfg.bull)}, "
                       f"위 20% 면 {e(cfg.bear)} 매수 · 목표 반대쪽 80% · 손절 경계 밖 10% (시간외 탭과 같은 규칙)"
                       if cfg.ext_strategy == "box" and len(cfg.sessions) > 1 else "")
+                   + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
+                      f"항상 매매 — 포지션이 없으면 바로 {cfg.fixed_qty or ''}주 매수 ({e(cfg.bull)} 최근 15분이 오르면 {e(cfg.bull)}, 내리면 {e(cfg.bear)}), "
+                      "손절 1.5% · 익절 2% · 30분 뒤 정리하고 다시 매수"
+                      if cfg.ext_strategy == "always" and len(cfg.sessions) > 1 else "")
                    + (f"<br>지금: <b>{market_hours.LABEL.get((live or {}).get('session') or '', '장 닫힘')}</b>"
                       if live else "") + "</div></section>")
 
@@ -375,7 +379,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
             g[3] += t["fees"]
         strat = lambda x: ("개장 범위 돌파" if cfg.strategy == "orb" else "Claude 판단") if x == "regular" else (  # noqa: E731
             "Claude 판단" if (cfg.ext_strategy or cfg.strategy) == "ai" else
-            "시간외 고정 박스" if cfg.ext_strategy == "box" else "개장 범위 돌파")
+            "시간외 고정 박스" if cfg.ext_strategy == "box" else "항상 매매" if cfg.ext_strategy == "always" else "개장 범위 돌파")
         out.append("<h2>시간대별 성과</h2><section class=card><table>"
                    "<tr><th>시간대</th><th>전략</th><th class=r>손익</th><th class=r>거래</th><th class=r>승률</th></tr>")
         for x in ("regular", "pre", "post", "day"):
