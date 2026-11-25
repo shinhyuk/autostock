@@ -18,6 +18,8 @@ class OpenTrade:
     peak_price: float = 0.0  # 진입 후 최고가 (추적 손절 기준)
     trail_pct: float = 0.0   # 최고가 대비 이만큼 밀리면 청산. 0이면 추적 손절 없음
     kind: str = ""           # orb(돌파) | box(박스권) | ""(AI 등)
+    add_qty: int = 0         # 분할매수: 아직 안 산 나머지 수량
+    add_at: float = 0.0      # 분할매수: 이 가격 이상이면 나머지를 산다
 
 
 @dataclass

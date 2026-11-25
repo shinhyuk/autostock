@@ -1372,3 +1372,20 @@ def test_news_pick_drives_paper_direction_and_page(tmp_path, monkeypatch):
     assert len(calls) == 1                                                                  # 세션마다 한 번만 판단
     page = web.render(cfg, "paper", "t")
     assert "SOXS 추천 (내릴 쪽)" in page and "수출 규제 악재" in page
+
+
+def test_breakout_scale_in_buys_rest_after_move(orb_rig):
+    e, m, _ = orb_rig(scale_in_frac=0.5, scale_in_add_pct=1.0)
+    e.tick()
+    m.after, m.px["SOXL"] = [30.8], 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()
+    t = e.st.open
+    assert t.kind == "orb" and t.add_qty > 0 and t.qty >= 1
+    q0, stop_px = t.qty, t.entry_price * (1 - t.stop_pct / 100)
+    m.px["SOXL"] = 31.2                                              # +1.3% → 나머지 추가
+    m.now += timedelta(seconds=10)
+    e.tick()
+    t = e.st.open
+    assert t.add_qty == 0 and t.qty > q0 and 30.8 < t.entry_price < 31.2
+    assert abs(t.entry_price * (1 - t.stop_pct / 100) - stop_px) < 1e-6                   # 손절 가격은 그대로

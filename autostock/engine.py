@@ -258,6 +258,10 @@ class Engine:
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
             return
+        later = 0
+        if kind == "orb" and self.cfg.scale_in_frac < 1 and qty >= 2:   # 분할매수: 일부만 먼저
+            first = max(1, int(qty * self.cfg.scale_in_frac))
+            qty, later = first, qty - first
         fill = self.broker.buy(d.symbol, qty, last)
         if not fill:
             self._reject(d, "매수 미체결")
@@ -265,12 +269,31 @@ class Engine:
         stop, take = self.risk.stops(d)
         trail = trail if trail is not None else self.risk.trail(stop, atr_pct)
         self.st.open = OpenTrade(d.symbol, fill.qty, fill.price, self.clock().isoformat(),
-                                 stop, take, self.risk.fee(fill.price, fill.qty), fill.price, trail, kind)
+                                 stop, take, self.risk.fee(fill.price, fill.qty), fill.price, trail, kind,
+                                 later, fill.price * (1 + self.cfg.scale_in_add_pct / 100) if later else 0.0)
         self.st.save(self.state_path)
         log.info("▶ 매수 %s %d주 @ $%.2f  (손절 -%.1f%% / 익절 +%.1f%% / 추적 %.1f%%)  %s",
                  d.symbol, fill.qty, fill.price, stop, take, trail, d.reason)
         self._journal("buy", symbol=d.symbol, qty=fill.qty, price=fill.price,
                       stop_pct=stop, take_pct=take, reason=d.reason, entry_kind=kind)
+
+    def _scale_in(self, t: OpenTrade, last: float) -> None:
+        """분할매수 나머지: 처음 산 뒤 예상 방향으로 움직였을 때 추가. 손절·익절 가격은 그대로 두고 평균단가 기준 %만 다시 계산."""
+        stop_px = t.entry_price * (1 - t.stop_pct / 100)
+        take_px = t.entry_price * (1 + t.take_pct / 100)
+        fill = self.broker.buy(t.symbol, t.add_qty, last)
+        t.add_qty = 0                                  # 체결이 안 돼도 다시 쫓아가 사지 않는다
+        if fill:
+            q0 = t.qty
+            t.entry_price = (t.entry_price * q0 + fill.price * fill.qty) / (q0 + fill.qty)
+            t.qty = q0 + fill.qty
+            t.buy_fee += self.risk.fee(fill.price, fill.qty)
+            t.stop_pct = (1 - stop_px / t.entry_price) * 100
+            t.take_pct = (take_px / t.entry_price - 1) * 100
+            log.info("▶ 분할매수 추가 %s %d주 @ $%.2f → 평균 $%.2f, %d주", t.symbol, fill.qty, fill.price, t.entry_price, t.qty)
+            self._journal("buy", symbol=t.symbol, qty=fill.qty, price=fill.price, reason="분할매수 추가 (예상 방향으로 움직임)",
+                          entry_kind=t.kind)
+        self.st.save(self.state_path)
 
     def _close(self, reason: str, last: float) -> bool:
         t = self.st.open
@@ -944,6 +967,8 @@ class Engine:
         if t := self.st.open:                        # 1) 보유 포지션 보호가 항상 먼저
             watch = t.symbol
             last = self._last_price = self.market.quote(t.symbol).last
+            if t.add_qty and last >= t.add_at:
+                self._scale_in(t, last)
             if last > t.peak_price:
                 t.peak_price = last
                 self.st.save(self.state_path)
