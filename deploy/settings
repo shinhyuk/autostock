@@ -25,8 +25,8 @@ LIVE__CONTEXT_SYMBOLS=NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ
 LIVE__ORDER_TEST_SYMBOL=SOXL
 LIVE__ORDER_TEST_SELL=false
 LIVE__STRATEGY=orb
-# 프리마켓도 켬: 화면 확인용으로 지금(프리마켓) SOXL 1주 테스트 매수. 프리·주간거래에는 전략 매매 없음(정규장만)
-LIVE__SESSIONS=regular,day,pre
+# 주문 테스트(주간거래 11/25 10:02 SOXL 1주)는 끝났으므로 실계좌는 정규장만. 프리·주간거래에서는 테스트 외 매매가 없었다
+LIVE__SESSIONS=regular
 LIVE__CAPITAL_KRW=2000000
 LIVE__DAILY_TARGET_KRW=200000
 LIVE__DAILY_MAX_LOSS_KRW=200000
