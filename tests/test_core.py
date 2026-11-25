@@ -1302,3 +1302,21 @@ def test_paper_trades_extended_hours_with_fixed_box(tmp_path, monkeypatch):
     e.tick()
     assert e.st.open and e.st.open.symbol == "SOXS"                                         # 위 20% → SOXS, SOXS 자기 박스 기준
     assert "시간외 고정 박스" in e.orb_status or "보유 중" in e.orb_status
+
+
+def test_paper_chart_extended_hours_shows_fixed_box_not_old_range(tmp_path, monkeypatch):
+    from autostock import market_hours, webdata, web
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    now = datetime(2026, 11, 24, 6, 50, 20, tzinfo=ET)                                     # 프리마켓
+    store.merge("SOXL", _osc(now.replace(second=0) - timedelta(minutes=70), 70, 100, 1) + [Bar(now.replace(second=0), 100, 100, 99.1, 99.2, 1)])
+    monkeypatch.setattr(market_hours, "now_et", lambda: now)
+    monkeypatch.setattr(webdata, "market", lambda c: None)
+    live = {"orb": {"hh": 120.0, "ll": 110.0, "symbol": "SOXL", "box": [112, 118]}}        # 지난 정규장 범위
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="box", box=True,
+                              sessions=("regular", "pre", "post", "day"))
+    d = webdata.chart(cfg, "paper", "SOXL", 120, store, None, live, [])
+    labels = [x["l"] for x in d["lines"]]
+    assert "범위 상단" not in labels and "시간외 박스 상단" in labels and d["range"] == [99, 101]
+    old = dataclasses.replace(cfg, sessions=("regular",), ext_strategy="")
+    assert webdata.chart(old, "paper", "SOXL", 120, store, None, live, [])["lines"] == []    # 시간외엔 지난 범위 안 그림
+    assert "세션 정규장, 프리마켓, 애프터마켓, 주간거래 · 정규장 밖 전략 시간외 고정 박스" in web.render(cfg, "paper", "t")

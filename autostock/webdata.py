@@ -337,7 +337,10 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
                 lines.append({"v": round(ent * (1 + (tr + 2 * cfg.fee_pct) / 100), 4), "k": "trail",
                               "l": "추적 손절 시작선"})
     orb = dict((live or {}).get("orb") or {})
-    if cfg.strategy == "orb" and sess and sess.name == "regular":
+    ext = extbox.session(now)
+    if ext or not (sess and sess.name == "regular"):
+        orb = {}                                      # 정규장 범위는 정규장에서만 그린다 (시간외 시세 위에 지난 범위가 겹쳐 보이던 문제)
+    elif cfg.strategy == "orb":
         orb = {**_levels_from_bars(cfg, store, sess, now), **{k: v for k, v in orb.items() if v}}
     if orb.get("box_off"):                            # 봇이 오늘 박스권을 더 안 한다고 알려 주면 구간을 그리지 않는다
         orb.pop("box", None)
@@ -352,8 +355,22 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
             bands = [{"lo": orb["ll"], "hi": lo, "k": "bl"}, {"lo": hi, "hi": orb["hh"], "k": "bs"}]
         elif orb.get("box_off"):
             note = "박스권: " + orb["box_off"]
+    rng_t = None
+    if ext and cfg.ext_strategy == "box" and ext[0] in cfg.sessions and sym == cfg.bull:
+        bx, brk = extbox.live_box(store.get(sym, now.timestamp() - 6 * 3600))   # 봇이 쓰는 것과 같은 시간외 고정 박스
+        if bx:
+            hi, lo = bx["hi"], bx["lo"]
+            lv, sig = extbox.box_levels(hi, lo), hi - extbox.ZONE * (hi - lo)
+            rng, rng_t = [lo, hi], bx["start"] * 1000
+            lines += [{"v": round(hi, 4), "k": "rng", "l": "시간외 박스 상단"}, {"v": round(lo, 4), "k": "rng", "l": "시간외 박스 하단"},
+                      {"v": round(sig, 4), "k": "bxs", "l": f"이 위면 {cfg.bear} 매수"},
+                      {"v": round(lv["buy_max"], 4), "k": "bxl", "l": f"이 아래면 {cfg.bull} 매수"}]
+            bands = [{"lo": lo, "hi": lv["buy_max"], "k": "bl"}, {"lo": sig, "hi": hi, "k": "bs"}]
+        else:
+            note = "시간외 박스 없음 — 위·아래 경계에 2번씩 닿는 옆걸음 구간이 생기면 그립니다" + (
+                f" (최근 박스는 {'위' if brk['dir'] == 'up' else '아래'}로 뚫림)" if brk else "")
     return {"sym": sym, "bars": bars, "vwap": [vwap.get(b[0]) for b in bars], "marks": marks, "lines": lines,
-            "range": rng, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note}
+            "range": rng, "range_t": rng_t, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note}
 
 
 _yahoo_at: dict = {}

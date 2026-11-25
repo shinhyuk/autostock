@@ -679,6 +679,12 @@ class Engine:
 
         def box_of(sym):
             bars = [b for b in self.market.bars(sym, 120) if b.ts < minute]
+            if (not bars or (now - bars[-1].ts).total_seconds() > stale * 60) and c.mode == "paper" \
+                    and sess and sess.name in ("pre", "post"):
+                try:                                  # 가상매매: 증권사 분봉에 프리·애프터가 없으면 야후 1분봉으로
+                    bars = [b for b in extbox.yahoo_1m(sym) if b.ts < minute][-180:]
+                except Exception as e:
+                    log.info("야후 1분봉 실패 %s: %s", sym, e)
             if not bars or (now - bars[-1].ts).total_seconds() > stale * 60:
                 return None, None
             rows = [[b.ts.timestamp(), b.open, b.high, b.low, b.close] for b in bars]

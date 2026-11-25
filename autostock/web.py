@@ -168,6 +168,11 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     if mode != "paper":                               # 모의투자·실계좌: 증권사 실제 계좌 자산을 맨 위에
         out.append(_account_card(cfg, mode))
         out.append(_test_status(cfg, mode, events, live))
+    else:
+        out.append(f"<div class='card note' style='margin-top:10px'>서버에 적용된 설정: 세션 "
+                   f"{e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))} · 정규장 밖 전략 "
+                   f"{e({'box': '시간외 고정 박스', 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
+                   f"코드 {e(_code_version())}</div>")
     if not running:
         links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
         out.append(f"<div class='card note'>이 탭({MODES[mode]})은 지금 실행 중이 아니라 지난 기록만 보입니다. 현재 실행 중: {links}</div>")
