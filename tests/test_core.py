@@ -1260,3 +1260,45 @@ def test_live_tab_shows_order_test_status(tmp_path):
     with open(tmp_path / "ordertest_live_day.ok", "w") as f:
         f.write("2026-11-24T01:00:00+09:00 SOXL")
     assert "SOXL 주문 테스트 통과" in web.render(cfg, "live", "t")
+
+
+def test_paper_trades_extended_hours_with_fixed_box(tmp_path, monkeypatch):
+    from autostock import market_hours
+    monkeypatch.setattr(market_hours, "ENABLED", ("regular", "pre", "post", "day"))
+    now0 = datetime(2026, 1, 5, 6, 0, 30, tzinfo=ET)                                        # 프리마켓
+
+    class XM:
+        def __init__(self):
+            self.now, self.px = now0, {"SOXL": 99.2, "SOXS": 19.7}
+        def bars(self, s, n=120):
+            base, amp = (100, 1) if s == "SOXL" else (20, 0.4)
+            t0 = now0.replace(second=0) - timedelta(minutes=80)
+            out = _osc(t0, 80, base, amp)                       # 고정된 옆걸음 (박스 시작이 바뀌지 않음)
+            last, k = self.px[s], now0.replace(second=0) - timedelta(minutes=1)
+            while k < self.now.replace(second=0):
+                out.append(Bar(k, base, max(base, last), min(base, last), last, 1))
+                k += timedelta(minutes=1)
+            return out[-n:]
+        def quote(self, s):
+            return Quote(s, self.px[s], self.px[s])
+    m = XM()
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="box", fee_pct=0.1,
+                              sessions=("regular", "pre", "post", "day"), max_stop_loss_pct=6)
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    t = e.st.open
+    assert t and t.symbol == "SOXL" and t.kind == "extbox"                                # 박스 아래 20% → SOXL
+    assert abs(t.take_pct - (100.6 / 99.2 - 1) * 100) < 0.01 and abs(t.stop_pct - (1 - 98.8 / 99.2) * 100) < 0.01
+    m.px["SOXL"] = 100.7
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and e.st.realized_usd > 0                                      # 목표에서 청산
+    m.px.update(SOXL=99.2)
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None                                                                # 같은 박스·같은 위치는 한 번만
+    m.px.update(SOXL=100.8, SOXS=19.66)
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open and e.st.open.symbol == "SOXS"                                         # 위 20% → SOXS, SOXS 자기 박스 기준
+    assert "시간외 고정 박스" in e.orb_status or "보유 중" in e.orb_status

@@ -68,6 +68,7 @@ class Engine:
         self.orb: dict[str, dict] = {}               # 세션별 개장 범위와 동조 종목 시가
         self.orb_status = ""
         self._orb_minute: datetime | None = None
+        self._extbox_used: set = set()                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
         self._noise_cp: tuple | None = None
         self.noise_book = None
         if cfg.noise:
@@ -654,6 +655,72 @@ class Engine:
             seen.add(self.st.open.entry_ts)
         return len(seen)
 
+    # ── 시간외 고정 박스 전략 (프리·애프터·주간거래) ───────────
+    def _extbox_tick(self, now: datetime) -> None:
+        """결과 페이지 '시간외' 탭과 같은 규칙: 위·아래 경계에 2번 이상 닿은 고정 박스에서 SOXL 이 아래 20% 면 SOXL,
+        위 20% 면 SOXS 를 산다. 목표는 반대쪽 80% 지점, 손절은 경계 밖 폭의 10%. 같은 박스·같은 위치는 한 번만."""
+        from . import extbox
+        c = self.cfg
+        minute = now.replace(second=0, microsecond=0)
+        if self._orb_minute == minute:
+            return
+        self._orb_minute = minute
+        if self.st.open:
+            self.orb_status = "보유 중 (시간외 박스)"
+            return
+        if self.st.halted:
+            self.orb_status = f"종료 ({self.st.halted})"
+            return
+        if minutes_to_close(now) < c.no_entry_before_close_min:
+            self.orb_status = "마감 전 진입 금지"
+            return
+        sess = market_hours.current(now)
+        stale = extbox.STALE_MIN.get(sess.name if sess else "", 5)
+
+        def box_of(sym):
+            bars = [b for b in self.market.bars(sym, 120) if b.ts < minute]
+            if not bars or (now - bars[-1].ts).total_seconds() > stale * 60:
+                return None, None
+            rows = [[b.ts.timestamp(), b.open, b.high, b.low, b.close] for b in bars]
+            return extbox.find_boxes(rows, 1)[1]["box"], bars[-1].close
+        bx, last = box_of(c.bull)
+        if not bx:
+            self.orb_status = "시간외 박스 없음 (경계에 2번씩 닿는 옆걸음 구간을 찾는 중)" if last else "시간외 시세 없음/지연"
+            return
+        hi, lo = bx["hi"], bx["lo"]
+        z = extbox.zone(last, hi, lo)
+        key = (bx["start"], z)
+        if z not in ("top", "bottom") or key in self._extbox_used:
+            self.orb_status = f"시간외 박스 ${lo:.2f}~${hi:.2f} · {extbox.ZLABEL[z]} · 대기"
+            return
+        if z == "bottom":
+            side, lv, px = c.bull, extbox.box_levels(hi, lo), last
+        else:
+            if not c.bear:
+                return
+            sb, spx = box_of(c.bear)
+            if sb:
+                side, lv, px = c.bear, extbox.box_levels(sb["hi"], sb["lo"]), spx
+            else:                                     # SOXS 박스가 없으면 SOXL 박스를 뒤집어 비율로
+                w = hi - lo
+                side, px = c.bear, spx or self.market.quote(c.bear).last
+                tp, sp = (last - (hi - extbox.BOX_TARGET * w)) / last, ((hi + extbox.BOX_STOP * w) - last) / last
+                lv = {"target": px * (1 + tp), "stop": px * (1 - sp)}
+        self._extbox_used.add(key)
+        price = self.market.quote(side).last
+        take = (lv["target"] / price - 1) * 100
+        stop = (1 - lv["stop"] / price) * 100
+        if take <= 2 * c.fee_pct + 0.2:
+            self.orb_status = f"시간외 박스가 좁아 목표 {take:.2f}% 가 수수료보다 작음 — 건너뜀"
+            return
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
+                     stop_loss_pct=min(max(stop, 0.3), 6.0), take_profit_pct=take,
+                     reason=f"시간외 박스(${lo:.2f}~${hi:.2f}, {c.bull}) {'아래' if z == 'bottom' else '위'} 구간 → {side} · "
+                            f"목표 ${lv['target']:.2f} · 손절 ${lv['stop']:.2f}")
+        self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
+        self._enter(d, price, trail=0, kind="extbox")
+        self.orb_status = "보유 중 (시간외 박스)" if self.st.open else self.orb_status
+
     def _gap(self, sess, open_px: float) -> float | None:
         """개장 갭 % (전 거래일 정규장 종가 대비). 노이즈 기록이나 일봉에서 전일 종가를 찾고, 없으면 None."""
         try:
@@ -768,7 +835,7 @@ class Engine:
         sess = market_hours.current(now)
         label = market_hours.LABEL.get(sess.name, "") if sess else ""
         strat = self._strategy(now)
-        sname = "개장 범위 돌파" if strat == "orb" else "Claude 판단"
+        sname = {"orb": "개장 범위 돌파", "box": "시간외 고정 박스"}.get(strat, "Claude 판단")
         pnl = f"세션 실현 {self._krw(st.realized_usd)}"
         if t := st.open:
             last = self._last_price or t.entry_price
@@ -838,6 +905,9 @@ class Engine:
             return
         if self._strategy(now) == "orb":
             self._orb_tick(now)
+            return
+        if self._strategy(now) == "box":
+            self._extbox_tick(now)
             return
         since = None if self.last_decision_at is None else (now - self.last_decision_at).total_seconds()
         due = since is None or since >= self.cfg.decision_interval_sec

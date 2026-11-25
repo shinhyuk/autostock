@@ -234,6 +234,10 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
                       f"Claude 가 3분마다 직접 판단하는 실험 — 백테스트에서 이 시간대에 통한 규칙이 없었습니다."
                       if cfg.ext_strategy == "ai" and len(cfg.sessions) > 1 else "")
+                   + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
+                      f"시간외 고정 박스 — 위·아래 경계에 2번 이상 닿은 옆걸음 구간에서 {e(cfg.bull)} 가 아래 20% 면 {e(cfg.bull)}, "
+                      f"위 20% 면 {e(cfg.bear)} 매수 · 목표 반대쪽 80% · 손절 경계 밖 10% (시간외 탭과 같은 규칙)"
+                      if cfg.ext_strategy == "box" and len(cfg.sessions) > 1 else "")
                    + (f"<br>지금: <b>{market_hours.LABEL.get((live or {}).get('session') or '', '장 닫힘')}</b>"
                       if live else "") + "</div></section>")
 
@@ -365,7 +369,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
             g[2] += t["pnl"] > 0
             g[3] += t["fees"]
         strat = lambda x: ("개장 범위 돌파" if cfg.strategy == "orb" else "Claude 판단") if x == "regular" else (  # noqa: E731
-            "Claude 판단" if (cfg.ext_strategy or cfg.strategy) == "ai" else "개장 범위 돌파")
+            "Claude 판단" if (cfg.ext_strategy or cfg.strategy) == "ai" else
+            "시간외 고정 박스" if cfg.ext_strategy == "box" else "개장 범위 돌파")
         out.append("<h2>시간대별 성과</h2><section class=card><table>"
                    "<tr><th>시간대</th><th>전략</th><th class=r>손익</th><th class=r>거래</th><th class=r>승률</th></tr>")
         for x in ("regular", "pre", "post", "day"):

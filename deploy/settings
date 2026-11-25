@@ -82,8 +82,9 @@ DEMO__DAILY_MAX_LOSS_KRW=1000000
 # 가상매매: 1000만원 가정, 정규장만. 노이즈 영역 돌파 + 개장 범위 돌파 + 박스권 + 변동성 필터 (금액 조절 없음)
 #  (research/combo.py: 45거래일 +292만, 최대 낙폭 -13.1%). 모의투자(노이즈 없음, 금액 조절)와 비교
 PAPER__STRATEGY=orb
-PAPER__EXT_STRATEGY=orb
-PAPER__SESSIONS=regular
+# 가상매매는 모든 시간에: 정규장은 돌파·박스권·노이즈, 프리·애프터·주간거래는 시간외 고정 박스 (Claude 호출 없음)
+PAPER__EXT_STRATEGY=box
+PAPER__SESSIONS=regular,pre,post,day
 PAPER__BULL_SYMBOL=SOXL
 PAPER__BEAR_SYMBOL=SOXS
 PAPER__CONTEXT_SYMBOLS=NVDA,SOXX,AMD,AVGO,TSM,MU,QQQ
