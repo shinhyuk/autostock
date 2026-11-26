@@ -47,7 +47,7 @@ class Risk:
         c = self.cfg
         stop = min(max(d.stop_loss_pct or c.max_stop_loss_pct, 0.3), c.max_stop_loss_pct)
         floor = max(0.5, 2 * c.fee_pct + 0.3)                   # 왕복 수수료보다는 크게
-        take = min(max(d.take_profit_pct or c.default_take_profit_pct, floor), min(10.0, c.take_profit_max_pct))
+        take = min(max(d.take_profit_pct or c.default_take_profit_pct, floor), c.take_profit_max_pct)   # 상한은 설정값(TAKE_PROFIT_MAX_PCT)
         return stop, take
 
     def trail(self, stop_pct: float, atr_pct: float | None) -> float:
