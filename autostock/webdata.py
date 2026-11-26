@@ -451,3 +451,19 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
         lines += [{"v": r4(lv["target"]), "k": "take", "l": "매도 목표"}, {"v": r4(lv["stop"]), "k": "stop", "l": "손절"}]
     return {"sym": sym, "bars": bars, "vwap": [None] * len(bars), "marks": [], "lines": lines, "range": rng,
             "range_t": rng_t * 1000 if rng_t else None, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}
+
+
+def board_book(cfg, sym: str) -> dict:
+    """차트 탭 호가창 (한국투자증권). 주간거래 시간에는 주간거래 시세 코드로."""
+    _enable_day(extbox.session(market_hours.now_et()))
+    mk = market(cfg)
+    if not mk:
+        return {"error": "한국투자증권 키 없음"}
+    if not _kis_lock.acquire(timeout=3):
+        return {"error": "다른 조회 중 (잠시 뒤 자동으로 다시 시도)"}
+    try:
+        return mk.book_levels(sym)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"[:160]}
+    finally:
+        _kis_lock.release()

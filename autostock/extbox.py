@@ -84,16 +84,19 @@ def _groups(flags) -> int:
     return g
 
 
-def find_boxes(rows: list[list], step: int) -> tuple[list, dict]:
+def find_boxes(rows: list[list], step: int, nmin: int | None = None, nmax: int | None = None,
+               wmax: float | None = None, gap: float = 3600) -> tuple[list, dict]:
     """rows [[ts초,o,h,l,c], ...] 시간순. 고정 박스를 찾는다.
     - 박스: 45~180분 구간에서 위·아래 경계(꼬리 한 번은 무시)에 각각 2번 이상 따로 닿았고, 그동안 종가가 박스 밖으로 나간 적이 없는 가장 긴 구간.
     - 한 번 정해지면 고정. 종가가 경계 밖으로 폭의 10% 넘게 2봉 연속 나가면 돌파로 보고 끝낸 뒤, 그 뒤 봉들로 새 박스를 찾는다.
     돌려주는 값: (봉마다 그 봉 '직전'까지로 정해진 박스 dict 또는 None, 마지막 봉까지 반영한 상태)"""
     res, box, outside, frm, last_break = [], None, 0, 0, None
-    nmin, nmax = max(3, BOX_MIN_MIN // step), BOX_MAX_MIN // step
+    nmin = nmin or max(3, BOX_MIN_MIN // step)
+    nmax = nmax or BOX_MAX_MIN // step
+    wmax = wmax or BOX_WMAX
     for i, r in enumerate(rows):
         res.append(box)
-        if i and r[0] - rows[i - 1][0] > 3600:          # 밤사이 같은 큰 공백이면 새로 시작
+        if i and r[0] - rows[i - 1][0] > gap:           # 밤사이 같은 큰 공백이면 새로 시작
             box, outside, frm = None, 0, i
         if box:
             w = box["hi"] - box["lo"]
@@ -108,7 +111,7 @@ def find_boxes(rows: list[list], step: int) -> tuple[list, dict]:
             hs, ls = sorted(x[2] for x in win), sorted(x[3] for x in win)
             hi, lo = hs[-2], ls[1]
             w = hi - lo
-            if not (BOX_WMIN <= w / ((hi + lo) / 2) * 100 <= BOX_WMAX):
+            if not (BOX_WMIN <= w / ((hi + lo) / 2) * 100 <= wmax):
                 continue
             if any(x[4] > hi + BREAK_M * w or x[4] < lo - BREAK_M * w for x in win):
                 continue

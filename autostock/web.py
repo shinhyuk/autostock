@@ -72,7 +72,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .pbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:4px 0 2px;background:var(--track)}.pbar i{display:block}.pbar .u{background:var(--up)}.pbar .d{background:var(--dn)}
 .verdict{margin-top:14px;padding:12px;border-radius:10px;border:1.5px solid var(--line)}.verdict.vu{border-color:var(--up)}.verdict.vd{border-color:var(--dn)}.verdict b{display:block;font-size:16px;margin-bottom:2px}.verdict.vu b{color:var(--up)}.verdict.vd b{color:var(--dn)}
 table.plan{margin-top:10px}table.plan td,table.plan th{padding:7px 4px}
-tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
+#bc{width:100%;height:380px;display:block;touch-action:none;cursor:grab}.zone{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:13.5px;font-variant-numeric:tabular-nums}.zone.zb{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent)}.zone.zs{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.lgs,.lgr,.lgb{display:inline-block;width:14px;border-top:2px dashed;margin-right:5px;vertical-align:middle}.lgs{border-color:var(--warn)}.lgr{border-color:var(--ok)}.lgb{border-color:var(--warn);border-top-style:dotted}.brow{position:relative;display:flex;justify-content:space-between;padding:4px 8px;font-size:13.5px;font-variant-numeric:tabular-nums}.brow i{position:absolute;right:0;top:2px;bottom:2px;opacity:.15}.brow.ask span:first-child{color:var(--dn)}.brow.ask i{background:var(--dn)}.brow.bid span:first-child{color:var(--up)}.brow.bid i{background:var(--up)}.brow span{position:relative}.bhead{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);padding:0 8px 4px}.bmid{text-align:center;font-size:12px;color:var(--mut);padding:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
 .tu{color:var(--up)}.td{color:var(--dn)}.mutt{color:var(--mut)}.warnt{color:var(--warn)}.pad{padding:0 4px}
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
 dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:12px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
@@ -90,6 +90,8 @@ footer{color:var(--mut);font-size:12px;margin:20px 2px}
 
 
 from .webchart import CHART_JS  # noqa: E402
+from .boardjs import BOARD_JS  # noqa: E402
+from . import board  # noqa: E402
 from . import webdata  # noqa: E402
 
 STORE: webdata.BarStore | None = None
@@ -117,7 +119,7 @@ def _next_open(cfg, now: datetime) -> str:
 
 def _nav(token: str, mode: str, running) -> str:
     e = html.escape
-    tabs = [(m, name + (" ●" if m in running else "")) for m, name in MODES.items()] + [("ext", "시간외")]
+    tabs = [("board", "차트")] + [(m, name + (" ●" if m in running else "")) for m, name in MODES.items()] + [("ext", "시간외")]
     return "".join(f"<a{' class=on' if m == mode else ''} href='/?k={e(token)}&mode={m}'>{e(n)}</a>" for m, n in tabs)
 
 
@@ -625,6 +627,27 @@ EXT_RESEARCH = (
     "큰 금액은 근거가 있는 정규장(한국시간 23:30~) 개장 범위 돌파·박스권 자동매매에 두세요.</div></section>")
 
 
+def render_board(cfg, token: str, now: datetime | None = None) -> str:
+    """차트 탭: 봉 차트(분봉~일봉, 드래그·확대축소), 지지·저항·박스·추천 구간, 호가창. 주문 기능 없음."""
+    e = html.escape
+    now = now or datetime.now(KST)
+    syms = "".join(f"<button data-bsym='{s_}'>{s_}</button>" for s_ in board.SYMBOLS)
+    tfs = "".join(f"<button data-btf='{k}'>{v}</button>" for k, v in board.TFLABEL.items())
+    return ("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<meta name=referrer content=no-referrer><title>autostock 차트</title>"
+            f"<style>{CSS}</style><main><header><h1>차트 · 호가</h1><span class=pill>{now:%m-%d %H:%M}</span></header>"
+            f"<nav>{_nav(token, 'board', cfg.modes)}</nav>"
+            f"<section class=card><div class=seg>{syms}</div><div class=seg>{tfs}<span class=sp></span>"
+            "<button data-bzoom=out>－</button><button data-bzoom=in>＋</button></div>"
+            "<canvas id=bc></canvas><div id=bmsg class=note>불러오는 중…</div></section>"
+            "<h2>지지·저항·추천 구간 (이 차트 기준)</h2><section class=card id=binfo></section>"
+            "<h2>호가창 (한국투자증권)</h2><section class=card id=bbook><div class=note>불러오는 중…</div></section>"
+            "<footer>지지선·저항선은 차트의 고점·저점이 여러 번 모인 가격, 박스는 위·아래에 2번씩 닿은 옆걸음 구간입니다. "
+            "추천 구간은 지지선 위(매수)·저항선 아래(매도·하락)이고, 목표는 반대쪽 선, 손절은 선 너머 ATR 절반입니다. "
+            "참고용이며 수익을 보장하지 않습니다. 봉은 야후 시세(시간외 포함, 일봉 제외)를 씁니다.</footer></main>"
+            f"<script>{BOARD_JS}</script>")
+
+
 def render_ext(cfg, token: str, now: datetime | None = None) -> str:
     """시간외(프리·애프터·주간거래) 직접 매매 탭. 봇은 주문하지 않고, 박스와 과거 확률만 보여 준다."""
     e = html.escape
@@ -815,10 +838,25 @@ def make_handler(token: str):
             load_dotenv(override=True)   # 실행 중에 .env 가 바뀌어도 최신 설정으로 보여준다
             cfg = config.load()
             mode = q.get("mode", [cfg.mode])[0]
-            if mode not in MODES and mode != "ext":
+            if mode not in MODES and mode not in ("ext", "board"):
                 mode = cfg.mode
-            cfg = config.load("paper" if mode == "ext" else mode)   # 탭마다 그 모드의 자금·종목 설정으로 보여준다
-            if mode == "ext":
+            cfg = config.load("paper" if mode in ("ext", "board") else mode)   # 탭마다 그 모드의 자금·종목 설정으로 보여준다
+            if mode == "board":
+                if u.path == "/data":
+                    sym = q.get("sym", ["SOXL"])[0]
+                    sym = sym if sym in board.SYMBOLS else "SOXL"
+                    if q.get("what", [""])[0] == "book":
+                        data = webdata.board_book(cfg, sym)
+                    else:
+                        tf = q.get("tf", ["5m"])[0]
+                        try:
+                            data = board.analyze(sym, tf if tf in board.TF else "5m")
+                        except Exception as ex:
+                            data = {"error": f"{type(ex).__name__}: {ex}"[:160], "bars": []}
+                    body, ctype = json.dumps(data).encode(), "application/json"
+                else:
+                    body, ctype = render_board(cfg, token).encode(), "text/html; charset=utf-8"
+            elif mode == "ext":
                 if u.path == "/data":
                     try:
                         span, x = int(q.get("span", ["120"])[0]), float(q.get("x", ["1"])[0])

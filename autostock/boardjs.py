@@ -1,0 +1,75 @@
+"""차트 탭 스크립트: 캔버스 봉 차트(드래그 이동, 휠·두 손가락 확대축소, 두 번 눌러 원위치), 지지·저항·박스·추천 구간, 호가창."""
+BOARD_JS = r"""
+(()=>{const cv=document.getElementById('bc');if(!cv)return;const ctx=cv.getContext('2d');
+const q=new URLSearchParams(location.search),K=q.get('k');let sym='SOXL',tf='5m',D=null,end=0,n=90,follow=true,hov=null;
+try{sym=localStorage.getItem('bsym')||sym;tf=localStorage.getItem('btf')||tf}catch(e){}
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const usd=v=>'$'+(v>=1000?v.toFixed(0):v.toFixed(2));
+const kst=(t,d)=>new Date(t).toLocaleString('ko-KR',Object.assign({hour12:false,timeZone:'Asia/Seoul'},d?{month:'2-digit',day:'2-digit'}:{hour:'2-digit',minute:'2-digit'}));
+function mark(){document.querySelectorAll('[data-bsym]').forEach(b=>b.classList.toggle('on',b.dataset.bsym==sym));document.querySelectorAll('[data-btf]').forEach(b=>b.classList.toggle('on',b.dataset.btf==tf))}
+async function load(reset){const msg=document.getElementById('bmsg');try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=board&sym=${sym}&tf=${tf}`);const nd=await r.json();
+  if(nd.error&&!(nd.bars||[]).length){msg.textContent='차트를 불러오지 못했습니다: '+nd.error;return}
+  const old=D;D=nd;const L=D.bars.length;
+  if(reset||!old){end=L;n=Math.min(90,L);follow=true}
+  else if(follow){end=L}
+  else{const t=old.bars[Math.max(0,end-1)][0];let i=D.bars.findIndex(b=>b[0]>t);end=i<0?L:i}
+  msg.textContent=`${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} · 봉 ${L}개 · 드래그=시간 이동 · 휠/두 손가락=확대축소 · 두 번 누르면 최신으로`;
+  info();draw()}catch(e){msg.textContent='연결 실패'}}
+function info(){const el=document.getElementById('binfo');if(!D||!D.last){el.innerHTML='';return}
+ const st=D.stats||{},p=(a)=>a&&a[0]+a[1]?Math.round(a[0]/(a[0]+a[1])*100)+'% ('+(a[0]+a[1])+'번)':'자료 부족';
+ let h=`<div class=sub>현재 ${usd(D.last)} · 한 봉 평균 움직임(ATR) ${usd(D.atr)}</div><dl class=kv>`;
+ h+=`<dt><span class=lgs></span>저항선</dt><dd>${D.res?usd(D.res.v)+' ('+D.res.n+'번 닿음)':'-'}</dd>`;
+ h+=`<dt><span class=lgr></span>지지선</dt><dd>${D.sup?usd(D.sup.v)+' ('+D.sup.n+'번 닿음)':'-'}</dd>`;
+ h+=`<dt><span class=lgb></span>박스</dt><dd>${D.box?usd(D.box.lo)+' ~ '+usd(D.box.hi):'없음 (위·아래에 2번씩 닿는 옆걸음 구간이 아님)'}</dd></dl>`;
+ for(const z of D.zones||[]){const buy=z.k=='buy';
+  h+=`<div class='zone ${buy?'zb':'zs'}'><b>${buy?'추천 매수 구간 (지지선 위)':'추천 매도·하락 구간 (저항선 아래)'}</b> ${usd(z.lo)} ~ ${usd(z.hi)}<br>`+
+   `${buy?'목표 '+usd(z.target)+' · 손절 '+usd(z.stop):'목표(아래) '+usd(z.target)+' · 손절(위) '+usd(z.stop)} · 손익비 ${z.rr.toFixed(1)} : 1</div>`}
+ h+=`<div class=note>이 차트의 과거 기록: 지지선 근처에 왔을 때 위로 1 ATR 먼저 간 비율 <b>${p(st.sup)}</b> · 저항선 근처에서 아래로 먼저 간 비율 <b>${p(st.res)}</b>. 50% 근처면 선만 보고 방향을 정하기 어렵다는 뜻입니다.</div>`;
+ el.innerHTML=h}
+function draw(){if(!D||!D.bars||!D.bars.length)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+ const B=D.bars,L=B.length;n=Math.max(15,Math.min(n,L));end=Math.max(n,Math.min(end,L));follow=end>=L;const s=B.slice(end-n,end);
+ const pr=58,pb=20,ph=H*0.78-pb,vt=H*0.80,vh=H*0.2-pb,pw=W-pr,bw=pw/n;
+ let lo=Math.min(...s.map(b=>b[3])),hi=Math.max(...s.map(b=>b[2]));const pad=(hi-lo)*0.08||lo*0.01;lo-=pad;hi+=pad;
+ const Y=v=>4+(hi-v)/(hi-lo)*(ph-4),X=i=>(i+.5)*bw;const up=css('--up'),dn=css('--dn'),mut=css('--mut'),line=css('--line'),fg=css('--fg'),ok=css('--ok'),warn=css('--warn'),card=css('--card');
+ ctx.font='11px system-ui';ctx.lineWidth=1;
+ for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4,y=Y(v);ctx.strokeStyle=line;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(pw,y);ctx.stroke();ctx.fillStyle=mut;ctx.fillText(usd(v),pw+4,y+4)}
+ const tIdx=t=>{let i=s.findIndex(b=>b[0]>=t);return i<0?(t>s[s.length-1][0]?n:-1):i};
+ for(const z of D.zones||[]){if(z.hi<lo||z.lo>hi)continue;ctx.fillStyle=z.k=='buy'?ok:warn;ctx.globalAlpha=.13;ctx.fillRect(0,Y(z.hi),pw,Math.max(Y(z.lo)-Y(z.hi),2));ctx.globalAlpha=1}
+ if(D.box){const i0=Math.max(0,tIdx(D.box.start));if(i0<n&&D.box.hi>lo&&D.box.lo<hi){ctx.strokeStyle=warn;ctx.setLineDash([4,3]);ctx.strokeRect(i0*bw,Y(D.box.hi),pw-i0*bw,Y(D.box.lo)-Y(D.box.hi));ctx.setLineDash([]);ctx.fillStyle=warn;ctx.fillText('박스',i0*bw+3,Y(D.box.hi)-3)}}
+ for(const lv of D.levels||[]){if(lv.v<lo||lv.v>hi)continue;const isS=lv.v<D.last;ctx.strokeStyle=isS?ok:warn;ctx.globalAlpha=Math.min(.35+lv.n*.1,.9);ctx.setLineDash([6,4]);ctx.lineWidth=lv===D.sup||lv===D.res||(D.sup&&lv.v==D.sup.v)||(D.res&&lv.v==D.res.v)?2:1;
+  ctx.beginPath();ctx.moveTo(0,Y(lv.v));ctx.lineTo(pw,Y(lv.v));ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1;ctx.globalAlpha=1}
+ const vmax=Math.max(...s.map(b=>b[5]||0))||1;
+ for(let i=0;i<n;i++){const [t,o,h,l,c,v]=s[i],col=c>=o?up:dn,x=X(i);ctx.strokeStyle=col;ctx.fillStyle=col;
+  ctx.beginPath();ctx.moveTo(x,Y(h));ctx.lineTo(x,Y(l));ctx.stroke();const w=Math.max(bw*.65,1);ctx.fillRect(x-w/2,Math.min(Y(o),Y(c)),w,Math.max(Math.abs(Y(o)-Y(c)),1));
+  ctx.globalAlpha=.35;const vv=(v||0)/vmax*vh;ctx.fillRect(x-w/2,vt+vh-vv,w,vv);ctx.globalAlpha=1}
+ const lab=(v,txt,col)=>{if(v<lo||v>hi)return;const y=Y(v);ctx.fillStyle=col;ctx.fillRect(pw+1,y-8,pr-2,16);ctx.fillStyle=card;ctx.font='bold 10.5px system-ui';ctx.fillText(txt,pw+4,y+4);ctx.font='11px system-ui'};
+ if(D.res)lab(D.res.v,usd(D.res.v),warn);if(D.sup)lab(D.sup.v,usd(D.sup.v),ok);
+ const lc=s[n-1][4];ctx.strokeStyle=fg;ctx.globalAlpha=.4;ctx.beginPath();ctx.moveTo(0,Y(lc));ctx.lineTo(pw,Y(lc));ctx.stroke();ctx.globalAlpha=1;lab(lc,usd(lc),fg);
+ ctx.fillStyle=mut;const day=tf=='1d'||tf=='1h';for(const i of [0,Math.floor(n/2),n-1]){const t=s[i][0];const txt=day?kst(t,1):kst(t);const tw=ctx.measureText(txt).width;ctx.fillText(txt,Math.min(Math.max(X(i)-tw/2,0),pw-tw),H-5)}
+ if(hov!=null&&hov>=0&&hov<pw){const i=Math.min(n-1,Math.floor(hov/bw)),b=s[i];ctx.strokeStyle=mut;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(X(i),0);ctx.lineTo(X(i),H-pb);ctx.stroke();ctx.setLineDash([]);
+  const txt=`${day?kst(b[0],1)+' ':''}${kst(b[0])} 시${usd(b[1])} 고${usd(b[2])} 저${usd(b[3])} 종${usd(b[4])}`;ctx.font='11px system-ui';const tw=ctx.measureText(txt).width+10;
+  ctx.fillStyle=fg;ctx.fillRect(Math.min(Math.max(X(i)-tw/2,0),pw-tw),0,tw,17);ctx.fillStyle=card;ctx.fillText(txt,Math.min(Math.max(X(i)-tw/2,0),pw-tw)+5,12)}}
+// 조작: 드래그 이동, 휠·두 손가락 확대축소, 두 번 눌러 최신으로
+const P=new Map();let drag=null,pinch=null,lastTap=0;
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);P.set(e.pointerId,e.clientX);
+ if(P.size==1){drag={x:e.clientX,end};const now=Date.now();if(now-lastTap<300){end=D?D.bars.length:0;n=90;draw()}lastTap=now}
+ if(P.size==2){const xs=[...P.values()];pinch={d:Math.abs(xs[0]-xs[1])||1,n,end};drag=null}});
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();if(!P.has(e.pointerId)){if(e.pointerType=='mouse'){hov=e.clientX-r.left;draw()}return}
+ P.set(e.pointerId,e.clientX);if(!D)return;const bw=(cv.clientWidth-58)/n;
+ if(pinch&&P.size==2){const xs=[...P.values()],d=Math.abs(xs[0]-xs[1])||1;const nn=Math.round(pinch.n*pinch.d/d);const right=pinch.end;n=Math.max(15,Math.min(nn,D.bars.length));end=right;draw()}
+ else if(drag){end=Math.round(drag.end-(e.clientX-drag.x)/bw);draw()}});
+const up_=e=>{P.delete(e.pointerId);if(P.size<2)pinch=null;if(!P.size)drag=null};cv.addEventListener('pointerup',up_);cv.addEventListener('pointercancel',up_);
+cv.addEventListener('pointerleave',()=>{hov=null;draw()});
+cv.addEventListener('wheel',e=>{e.preventDefault();if(!D)return;const r=cv.getBoundingClientRect(),bw=(cv.clientWidth-58)/n,fx=Math.min(Math.max((e.clientX-r.left)/(cv.clientWidth-58),0),1);
+ const at=end-n+fx*n,nn=Math.round(n*(e.deltaY>0?1.15:1/1.15));n=Math.max(15,Math.min(nn,D.bars.length));end=Math.round(at+(1-fx)*n);draw()},{passive:false});
+document.querySelectorAll('[data-bzoom]').forEach(b=>b.addEventListener('click',()=>{n=Math.round(n*(b.dataset.bzoom=='in'?0.7:1.4));draw()}));
+document.querySelectorAll('[data-bsym]').forEach(b=>b.addEventListener('click',()=>{sym=b.dataset.bsym;try{localStorage.setItem('bsym',sym)}catch(e){}mark();load(true);book()}));
+document.querySelectorAll('[data-btf]').forEach(b=>b.addEventListener('click',()=>{tf=b.dataset.btf;try{localStorage.setItem('btf',tf)}catch(e){}mark();load(true)}));
+async function book(){const el=document.getElementById('bbook');try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=board&what=book&sym=${sym}`);const d=await r.json();
+ if(d.error||!((d.asks||[]).length||(d.bids||[]).length)){el.innerHTML=`<div class=note>호가를 받지 못했습니다${d.error?': '+d.error:''} (장이 닫혔거나 증권사가 이 시간대 호가를 주지 않음)</div>`;return}
+ const mx=Math.max(...[...d.asks,...d.bids].map(x=>x[1]||0),1);const row=(x,cls)=>`<div class='brow ${cls}'><i style='width:${(x[1]||0)/mx*100}%'></i><span>${usd(x[0])}</span><span>${(x[1]||0).toLocaleString('ko-KR')}</span></div>`;
+ const sp=d.asks.length&&d.bids.length?((d.asks[0][0]/d.bids[0][0]-1)*100).toFixed(2)+'%':'-';
+ el.innerHTML=`<div class=bhead><span>가격</span><span>잔량</span></div>`+[...d.asks].reverse().map(x=>row(x,'ask')).join('')+`<div class=bmid>호가 차이 ${sp}${d.last?' · 현재가 '+usd(d.last):''}</div>`+d.bids.map(x=>row(x,'bid')).join('')+
+  `<div class=note>${d.asks.length<=1?'미국 주식은 계좌 권한에 따라 1호가만 제공될 수 있습니다 · ':''}3초마다 갱신</div>`}catch(e){el.innerHTML='<div class=note>호가 연결 실패</div>'}}
+addEventListener('resize',draw);mark();load(true);book();setInterval(()=>load(false),10000);setInterval(book,3000)})();
+"""

@@ -175,6 +175,25 @@ class KISMarket:
             log.warning("호가 조회 실패: %s", e)
             return None
 
+    def book_levels(self, symbol: str, depth: int = 10) -> dict:
+        """호가창: 매도·매수 호가와 잔량 (미국은 계좌 권한에 따라 1호가만 올 수 있다)."""
+        j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/inquire-asking-price", "HHDFS76200100",
+                        {"AUTH": "", "EXCD": _excd(symbol), "SYMB": symbol})
+        o = j.get("output2") or {}
+        if isinstance(o, list):
+            o = o[0] if o else {}
+        asks, bids = [], []
+        for i in range(1, depth + 1):
+            pa, pb = _num(o.get(f"pask{i}")), _num(o.get(f"pbid{i}"))
+            if pa > 0:
+                asks.append([pa, _num(o.get(f"vask{i}"))])
+            if pb > 0:
+                bids.append([pb, _num(o.get(f"vbid{i}"))])
+        o1 = j.get("output1") or {}
+        if isinstance(o1, list):
+            o1 = o1[0] if o1 else {}
+        return {"asks": asks, "bids": bids, "last": _num(o1.get("last")) or None}
+
     def daily_ranges(self, symbol: str, n: int = 8) -> list[tuple[str, float]]:
         """최근 일봉의 (날짜 YYYYMMDD, 하루 변동폭 % = (고가-저가)/시가). 최신순."""
         j = self.c.call("GET", "/uapi/overseas-price/v1/quotations/dailyprice", "HHDFS76240000",

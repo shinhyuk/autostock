@@ -1420,3 +1420,28 @@ def test_paper_always_holds_until_stop_and_cools_down(tmp_path, monkeypatch):
         m.now += timedelta(minutes=1)
         e.tick()
     assert e.st.open is None and "쉬는 중" in e.orb_status                                     # 청산 뒤 60분은 다시 안 삼
+
+
+def test_chart_tab_levels_box_zones_and_page(monkeypatch, tmp_path):
+    from autostock import board, web, webdata
+    t0 = 1_700_000_000_000
+    b = []
+    for i in range(200):                                        # 100 근처 옆걸음: 102 에서 막히고 98 에서 받침
+        ph = i % 20
+        c = 98 + ph * 0.4 if ph < 10 else 102 - (ph - 10) * 0.4
+        b.append([t0 + i * 300_000, c, c + 0.1, c - 0.1, c, 1000])
+    monkeypatch.setattr(board, "bars", lambda s, tf, ttl=20: b)
+    d = board.analyze("SOXL", "5m")
+    assert d["sup"] and d["res"] and d["sup"]["v"] < d["last"] < d["res"]["v"]
+    assert abs(d["res"]["v"] - 101.7) < 0.6 and abs(d["sup"]["v"] - 98.0) < 0.6
+    assert {z["k"] for z in d["zones"]} == {"buy", "sell"} and d["box"] is not None
+    assert len(d["levels"]) <= 6
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path))
+    page = web.render_board(cfg, "t")
+    assert "id=bc" in page and "data-btf='1d'" in page and "호가창" in page
+    assert "mode=board" in web.render(cfg, "paper", "t")                                   # 탭 맨 앞에 '차트'
+
+    class MK:
+        def book_levels(self, s): return {"asks": [[100.1, 5]], "bids": [[100.0, 7]], "last": 100.05}
+    monkeypatch.setattr(webdata, "market", lambda c: MK())
+    assert webdata.board_book(cfg, "SOXL")["bids"] == [[100.0, 7]]
