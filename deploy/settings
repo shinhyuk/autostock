@@ -87,6 +87,11 @@ PAPER__STRATEGY=orb
 # 사용자 요청: 정규장 밖에서는 쉬지 않고 사고판다 (가짜 돈, 100주 고정). 정규장은 기존 돌파·박스권·노이즈
 PAPER__EXT_STRATEGY=always
 PAPER__FIXED_QTY=100
+# 30분마다 사고팔면 수수료만 쌓여(11/26 사용자 지적) → 한 번 사면 손절 3% · 익절 5% · 세션 마감까지 보유, 청산 뒤 60분 쉼
+PAPER__ALWAYS_HOLD_MIN=0
+PAPER__ALWAYS_STOP_PCT=3
+PAPER__ALWAYS_TAKE_PCT=5
+PAPER__ALWAYS_COOLDOWN_MIN=60
 # 뉴스 호재·악재 실험: 주간거래·프리마켓 시작 때 Claude 가 기사 제목으로 SOXL/SOXS 를 고르고(하루 2번 호출), 그 방향으로만 산다
 PAPER__NEWS_PICK=true
 PAPER__SESSIONS=regular,pre,post,day

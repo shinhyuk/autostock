@@ -322,7 +322,7 @@ class Engine:
                 st.last_loss_ts, st.last_loss_symbol = self.clock().isoformat(), t.symbol
         st.history.append({"symbol": t.symbol, "kind": t.kind, "entry_ts": t.entry_ts, "qty": fill.qty, "entry": t.entry_price,
                            "exit": fill.price, "pnl_usd": round(pnl, 2), "reason": reason,
-                           "ts": self.clock().strftime("%H:%M")})
+                           "ts": self.clock().strftime("%H:%M"), "exit_ts": self.clock().isoformat()})
         log.info("◀ 매도 %s %d주 @ $%.2f  손익 $%+.2f (%s)  [%s]  당일 누적 $%+.2f (%s)",
                  t.symbol, fill.qty, fill.price, pnl, self._krw(pnl), reason,
                  st.realized_usd, self._krw(st.realized_usd))
@@ -691,14 +691,23 @@ class Engine:
         self._orb_minute = minute
         if t := self.st.open:
             held = (now - datetime.fromisoformat(t.entry_ts)).total_seconds() / 60
-            if t.kind == "always" and held >= 30:
-                self._close("항상 매매: 30분 보유 후 정리", self.market.quote(t.symbol).last)
+            if t.kind == "always" and c.always_hold_min and held >= c.always_hold_min:
+                self._close(f"항상 매매: {c.always_hold_min:.0f}분 보유 후 정리", self.market.quote(t.symbol).last)
             else:
                 self.orb_status = f"보유 중 (항상 매매, {held:.0f}분째)"
             return
         if minutes_to_close(now) < c.no_entry_before_close_min:
             self.orb_status = "마감 전 진입 금지"
             return
+        if c.always_cooldown_min and self.st.history:
+            try:
+                last_exit = datetime.fromisoformat(self.st.history[-1].get("exit_ts", ""))
+                wait = c.always_cooldown_min - (now - last_exit).total_seconds() / 60
+                if wait > 0:
+                    self.orb_status = f"항상 매매: 직전 청산 후 쉬는 중 ({wait:.0f}분 남음)"
+                    return
+            except (ValueError, TypeError):
+                pass
         sess = market_hours.current(now)
         try:
             bars = [b for b in self.market.bars(c.bull, 30) if b.ts < minute]
@@ -724,8 +733,10 @@ class Engine:
         except Exception as e:
             self.orb_status = f"항상 매매: {side} 시세 없음 ({e})"
             return
-        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100, stop_loss_pct=1.5, take_profit_pct=2.0,
-                     reason=f"항상 매매: {why} → {side} (손절 1.5% · 익절 2% · 30분 뒤 정리)")
+        hold = f"{c.always_hold_min:.0f}분 뒤 정리" if c.always_hold_min else "세션 마감까지 보유"
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100, stop_loss_pct=c.always_stop_pct,
+                     take_profit_pct=c.always_take_pct,
+                     reason=f"항상 매매: {why} → {side} (손절 {c.always_stop_pct:g}% · 익절 {c.always_take_pct:g}% · {hold})")
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
         self._enter(d, price, trail=0, kind="always", qty=c.fixed_qty or None)
         self.orb_status = "보유 중 (항상 매매)" if self.st.open else "항상 매매: 매수 실패"

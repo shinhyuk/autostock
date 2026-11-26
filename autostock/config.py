@@ -105,6 +105,10 @@ class Settings:
     news_pick: bool = False             # 가상매매 실험: 시간외 '항상 매매' 방향을 뉴스 판단(SOXL/SOXS)으로
     scale_in_frac: float = 1.0          # 돌파 진입 때 처음 살 비율 (1=한 번에). 0.5 면 절반 사고
     scale_in_add_pct: float = 1.0       # 보유 종목이 진입가 대비 이 % 오르면 나머지를 산다
+    always_hold_min: float = 30.0       # '항상 매매' 보유 시간 상한(분). 0 이면 손절·익절·세션 마감까지 보유
+    always_stop_pct: float = 1.5
+    always_take_pct: float = 2.0
+    always_cooldown_min: float = 0.0    # 청산 뒤 다시 사기까지 쉬는 시간(분)
     fixed_qty: int = 0                  # >0: '항상 매매(always)' 전략이 사는 고정 수량 (가상매매용)
     box_peer_max: float = 0.0           # >0: 동조 종목(엔비디아·SOXX)이 개장가 대비 반대로 이 % 넘게 움직였으면 박스권 진입 안 함
     box_gap_max: float = 0.0            # >0: 개장 갭이 반대 방향으로 이 % 넘으면 그 방향 박스권 진입 안 함 (갭 하락 날 SOXL 반등 매수 등)
@@ -184,6 +188,10 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         box_stop=_f("BOX_STOP", 0.1),
         box_max=_i("BOX_MAX", 1),
         fixed_qty=_i("FIXED_QTY", 0),
+        always_hold_min=_f("ALWAYS_HOLD_MIN", 30.0),
+        always_stop_pct=_f("ALWAYS_STOP_PCT", 1.5),
+        always_take_pct=_f("ALWAYS_TAKE_PCT", 2.0),
+        always_cooldown_min=_f("ALWAYS_COOLDOWN_MIN", 0.0),
         scale_in_frac=_f("SCALE_IN_FRAC", 1.0),
         scale_in_add_pct=_f("SCALE_IN_ADD_PCT", 1.0),
         news_pick=_s("NEWS_PICK", "false").lower() in ("1", "true", "yes"),

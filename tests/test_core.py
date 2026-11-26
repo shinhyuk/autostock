@@ -1389,3 +1389,33 @@ def test_breakout_scale_in_buys_rest_after_move(orb_rig):
     t = e.st.open
     assert t.add_qty == 0 and t.qty > q0 and 30.8 < t.entry_price < 31.2
     assert abs(t.entry_price * (1 - t.stop_pct / 100) - stop_px) < 1e-6                   # 손절 가격은 그대로
+
+
+def test_paper_always_holds_until_stop_and_cools_down(tmp_path, monkeypatch):
+    from autostock import market_hours
+    monkeypatch.setattr(market_hours, "ENABLED", ("regular", "pre", "post", "day"))
+    now0 = datetime(2026, 1, 5, 17, 0, 30, tzinfo=ET)
+
+    class M:
+        def __init__(self): self.now, self.px = now0, {"SOXL": 30.0, "SOXS": 20.0}
+        def bars(self, s, n=120):
+            return [Bar(self.now.replace(second=0) - timedelta(minutes=20 - i), 29, 30, 29, 29 + i * .05, 1) for i in range(20)]
+        def quote(self, s): return Quote(s, self.px[s], self.px[s])
+    m = M()
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="always", fixed_qty=100,
+                              always_hold_min=0, always_stop_pct=3, always_take_pct=5, always_cooldown_min=60,
+                              sessions=("regular", "pre", "post", "day"), fee_pct=0.1, capital_krw=10_000_000)
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    for _ in range(90):                                                                      # 90분 동안 그대로 보유
+        m.now += timedelta(minutes=1)
+        e.tick()
+    assert e.st.open and e.st.trades == 0
+    m.px["SOXL"] = 28.9                                                                      # -3.7% 손절
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and e.st.trades == 1
+    for _ in range(30):
+        m.now += timedelta(minutes=1)
+        e.tick()
+    assert e.st.open is None and "쉬는 중" in e.orb_status                                     # 청산 뒤 60분은 다시 안 삼

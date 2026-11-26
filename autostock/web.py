@@ -173,7 +173,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
             out.append(_news_card(cfg))
         out.append(f"<div class='card note' style='margin-top:10px'>서버에 적용된 설정: 세션 "
                    f"{e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))} · 정규장 밖 전략 "
-                   f"{e({'box': '시간외 고정 박스', 'always': f'항상 매매 ({cfg.fixed_qty or "자동"}주, 쉬지 않고 사고팜)', 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
+                   f"{e({'box': '시간외 고정 박스', 'always': f'항상 매매 ({cfg.fixed_qty or "자동"}주, ' + (f'{cfg.always_hold_min:.0f}분마다 교체)' if cfg.always_hold_min else '마감까지 보유)'), 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
                    f"코드 {e(_code_version())}</div>")
     if not running:
         links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
@@ -247,7 +247,9 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                       if cfg.ext_strategy == "box" and len(cfg.sessions) > 1 else "")
                    + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
                       f"항상 매매 — 포지션이 없으면 바로 {cfg.fixed_qty or ''}주 매수 ({e(cfg.bull)} 최근 15분이 오르면 {e(cfg.bull)}, 내리면 {e(cfg.bear)}), "
-                      "손절 1.5% · 익절 2% · 30분 뒤 정리하고 다시 매수"
+                      f"손절 {cfg.always_stop_pct:g}% · 익절 {cfg.always_take_pct:g}% · "
+                      + (f"{cfg.always_hold_min:.0f}분 뒤 정리" if cfg.always_hold_min else "세션 마감까지 보유")
+                      + (f" · 청산 뒤 {cfg.always_cooldown_min:.0f}분 쉬고 다시 매수" if cfg.always_cooldown_min else " · 청산 즉시 다시 매수")
                       if cfg.ext_strategy == "always" and len(cfg.sessions) > 1 else "")
                    + (f"<br>지금: <b>{market_hours.LABEL.get((live or {}).get('session') or '', '장 닫힘')}</b>"
                       if live else "") + "</div></section>")
