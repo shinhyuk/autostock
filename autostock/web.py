@@ -640,9 +640,10 @@ def render_board(cfg, token: str, now: datetime | None = None) -> str:
             f"<section class=card><div class=seg>{syms}</div><div class=seg>{tfs}<span class=sp></span>"
             "<button data-bzoom=out>－</button><button data-bzoom=in>＋</button></div>"
             "<canvas id=bc></canvas><div id=bmsg class=note>불러오는 중…</div></section>"
-            "<h2>지지·저항·추천 구간 (이 차트 기준)</h2><section class=card id=binfo></section>"
+            "<h2>단기: 지지·저항대·추천 구간 (위 차트 기준)</h2><section class=card id=binfo></section>"
+            "<h2>장기 관점 (일봉·주봉, 최근 5년)</h2><section class=card id=blong><div class=note>불러오는 중…</div></section>"
             "<h2>호가창 (한국투자증권)</h2><section class=card id=bbook><div class=note>불러오는 중…</div></section>"
-            "<footer>지지선·저항선은 차트의 고점·저점이 여러 번 모인 가격, 박스는 위·아래에 2번씩 닿은 옆걸음 구간입니다. "
+            "<footer>지지대·저항대는 차트의 고점·저점이 여러 번 모인 가격대, 박스는 위·아래에 2번씩 닿은 옆걸음 구간입니다. "
             "추천 구간은 지지선 위(매수)·저항선 아래(매도·하락)이고, 목표는 반대쪽 선, 손절은 선 너머 ATR 절반입니다. "
             "참고용이며 수익을 보장하지 않습니다. 봉은 야후 시세(시간외 포함, 일봉 제외)를 씁니다.</footer></main>"
             f"<script>{BOARD_JS}</script>")
@@ -847,6 +848,11 @@ def make_handler(token: str):
                     sym = sym if sym in board.SYMBOLS else "SOXL"
                     if q.get("what", [""])[0] == "book":
                         data = webdata.board_book(cfg, sym)
+                    elif q.get("what", [""])[0] == "long":
+                        try:
+                            data = board.longterm(sym)
+                        except Exception as ex:
+                            data = {"error": f"{type(ex).__name__}: {ex}"[:160]}
                     else:
                         tf = q.get("tf", ["5m"])[0]
                         try:

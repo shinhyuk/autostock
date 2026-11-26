@@ -1445,3 +1445,18 @@ def test_chart_tab_levels_box_zones_and_page(monkeypatch, tmp_path):
         def book_levels(self, s): return {"asks": [[100.1, 5]], "bids": [[100.0, 7]], "last": 100.05}
     monkeypatch.setattr(webdata, "market", lambda c: MK())
     assert webdata.board_book(cfg, "SOXL")["bids"] == [[100.0, 7]]
+
+
+def test_chart_tab_long_term_view(monkeypatch):
+    from autostock import board
+    t0 = 1_600_000_000_000
+    d = []
+    for i in range(700):                                         # 오르다 크게 빠진 뒤 횡보
+        c = 100 + i * 0.2 if i < 400 else 180 - (i - 400) * 0.45
+        d.append([t0 + i * 86_400_000, c, c * 1.02, c * 0.98, c, 1000])
+    monkeypatch.setattr(board, "bars", lambda s, tf, ttl=20: d)
+    lt = board.longterm("NVDA")
+    assert lt["dd"] < -60 and lt["above200"] is False and lt["ma200"] > lt["last"]
+    assert set(lt["fwd"]) == {21, 63, 126} and lt["episodes"]
+    lv = board.levels(d[-200:])
+    assert all(x["lo"] <= x["v"] <= x["hi"] for x in lv)                                     # 선이 아니라 가격대

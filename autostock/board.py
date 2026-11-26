@@ -73,7 +73,10 @@ def levels(b: list[list], upto: int | None = None, k: int = 3, tol: float | None
             groups[-1].append(p)
         else:
             groups.append([p])
-    return [{"v": mean(g), "n": len(g)} for g in groups]
+    pad = (tol or 0) * 0.3                                # 선이 아니라 가격대(띠)로: 모인 고점·저점의 범위 + 약간 여유
+    t = tol or 0
+    return [{"v": mean(g), "n": len(g), "lo": max(min(g) - pad, mean(g) - t * 0.4),
+             "hi": min(max(g) + pad, mean(g) + t * 0.4)} for g in groups]
 
 
 def nearest(lv: list[dict], price: float, min_n: int = 2):
@@ -153,3 +156,84 @@ def analyze(sym: str, tf: str) -> dict:
             "levels": _near(lv, last), "sup": sup, "res": res,
             "box": {"hi": bx["hi"], "lo": bx["lo"], "start": bx["start"] * 1000} if bx else None,
             "zones": zones, "stats": st}
+
+
+def _ma(xs: list[float], n: int) -> float | None:
+    return mean(xs[-n:]) if len(xs) >= n else None
+
+
+def longterm(sym: str) -> dict:
+    """장기 관점(5년 일봉): 추세(50·200일 평균), 1년 고점 대비 하락률, 주봉 지지·저항대,
+    지금과 비슷한 상태(고점 대비 하락률 구간·200일선 위/아래)였던 날들의 1·3·6개월 뒤 수익률, 레버리지 감가."""
+    d = bars_daily(sym)
+    if len(d) < 300:
+        return {"error": "일봉이 부족합니다"}
+    cl = [x[4] for x in d]
+    last = cl[-1]
+    ma50, ma200 = _ma(cl, 50), _ma(cl, 200)
+    hi252 = max(x[2] for x in d[-252:])
+    lo252 = min(x[3] for x in d[-252:])
+    dd = (last / hi252 - 1) * 100
+
+    def state(i):
+        h = max(x[2] for x in d[max(0, i - 251):i + 1])
+        ddi = (cl[i] / h - 1) * 100
+        m = mean(cl[i - 199:i + 1]) if i >= 199 else None
+        return ddi, (cl[i] > m) if m else None
+    bucket = lambda v: 0 if v > -20 else 1 if v > -40 else 2 if v > -60 else 3 if v > -80 else 4   # noqa: E731
+    now_b, now_above = bucket(dd), last > ma200 if ma200 else None
+    fwd = {21: [], 63: [], 126: []}
+    hits = []
+    for i in range(252, len(d)):
+        ddi, ab = state(i)
+        if bucket(ddi) != now_b or ab != now_above:
+            continue
+        hits.append(i)
+        for h in fwd:
+            if i + h < len(d):
+                fwd[h].append((cl[i + h] / cl[i] - 1) * 100)
+    stats = {h: {"n": len(v), "med": sorted(v)[len(v) // 2] if v else None,
+                 "up": sum(x > 0 for x in v) / len(v) * 100 if v else None,
+                 "p10": sorted(v)[len(v) // 10] if len(v) >= 10 else None,
+                 "p90": sorted(v)[len(v) * 9 // 10] if len(v) >= 10 else None} for h, v in fwd.items()}
+    eps = []                                             # 연속된 날은 한 번의 '사례'로 묶는다 (20거래일 넘게 끊기면 새 사례)
+    for i in hits:
+        if eps and i - eps[-1][1] <= 20:
+            eps[-1][1] = i
+        else:
+            eps.append([i, i])
+    wk = _weekly(d)
+    lv = levels(wk, k=2, look=104, tol=atr(wk[-26:]) * 0.5)
+    sup, res = nearest(lv, last)
+    out = {"sym": sym, "last": last, "ma50": ma50, "ma200": ma200, "hi252": hi252, "lo252": lo252, "dd": dd,
+           "bucket": ["고점 근처(-20% 이내)", "-20~-40%", "-40~-60%", "-60~-80%", "-80% 넘게"][now_b],
+           "above200": now_above, "fwd": stats, "episodes": [[d[a][0], d[b][0]] for a, b in eps], "wsup": sup, "wres": res, "from": d[0][0], "days": len(d)}
+    if sym in ("SOXL", "SOXS"):                         # 레버리지 감가: 1년 동안 SOXL 실제 vs SOXX 의 3배(또는 -3배)
+        sx = bars_daily("SOXX")
+        if len(sx) >= 253 and len(d) >= 253:
+            r_l = (cl[-1] / cl[-253] - 1) * 100
+            r_x = (sx[-1][4] / sx[-253][4] - 1) * 100
+            out["decay"] = {"etf": r_l, "soxx": r_x, "mult": 3 if sym == "SOXL" else -3}
+    return out
+
+
+def bars_daily(sym: str) -> list[list]:
+    iv = TF["1d"]
+    TF["1d5y"] = ("1d", "5y", 1440)
+    try:
+        return bars(sym, "1d5y", ttl=3600)
+    finally:
+        TF["1d"] = iv
+
+
+def _weekly(d: list[list]) -> list[list]:
+    from datetime import datetime, timezone
+    out: dict = {}
+    for x in d:
+        k = datetime.fromtimestamp(x[0] / 1000, timezone.utc).isocalendar()[:2]
+        if k not in out:
+            out[k] = list(x)
+        else:
+            w = out[k]
+            w[2], w[3], w[4], w[5] = max(w[2], x[2]), min(w[3], x[3]), x[4], w[5] + (x[5] or 0)
+    return [out[k] for k in sorted(out)]
