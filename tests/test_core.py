@@ -1404,7 +1404,8 @@ def test_paper_always_holds_until_stop_and_cools_down(tmp_path, monkeypatch):
     m = M()
     cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="always", fixed_qty=100,
                               always_hold_min=0, always_stop_pct=3, always_take_pct=5, always_cooldown_min=60,
-                              sessions=("regular", "pre", "post", "day"), fee_pct=0.1, capital_krw=10_000_000)
+                              sessions=("regular", "pre", "post", "day"), fee_pct=0.1, capital_krw=10_000_000,
+                              daily_max_loss_krw=3_000_000)
     e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
     e.tick()
     for _ in range(90):                                                                      # 90분 동안 그대로 보유
