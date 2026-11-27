@@ -87,6 +87,35 @@ dl.kv dt{color:var(--mut)}dl.kv dd{margin:0;text-align:right}
 .stats4 .k{font-size:12px;color:var(--mut)}.stats4 .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
 #tip .tu{color:#ff9b91}#tip .td{color:#9cc2ff}
 footer{color:var(--mut);font-size:12px;margin:20px 2px}
+
+/* ── 정리된 디자인 (공통) */
+:root{--r:16px}
+body{background:var(--bg);letter-spacing:-.005em}
+main{padding:12px 14px 48px}
+header{margin:4px 2px 12px}h1{font-size:18px;font-weight:800;letter-spacing:-.02em}h1 small{font-size:12px;font-weight:600;color:var(--mut);margin-left:8px;letter-spacing:0}
+h2{font-size:12px;text-transform:none;color:var(--mut);margin:22px 4px 8px;font-weight:700;letter-spacing:.03em;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.hsub{font-weight:500;letter-spacing:0;font-size:12px}
+nav{gap:4px;padding:4px;background:var(--track);border-radius:12px;margin-bottom:14px}nav a{border:0;background:transparent;padding:7px 2px;border-radius:9px;font-weight:600}
+nav a.on{background:var(--card);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.card{border:0;border-radius:var(--r);box-shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.04)}
+@media(prefers-color-scheme:dark){.card{box-shadow:none;border:1px solid var(--line)}}
+.card.empty{color:var(--mut);text-align:center;padding:18px}
+.hero{margin-top:10px}.hero .big{font-size:34px}.hero .sub{margin-top:2px}
+.grid4{grid-template-columns:repeat(4,1fr);gap:8px}.grid4 dt{font-size:11.5px;color:var(--mut)}.grid4 dd{margin:2px 0 0;font-weight:700;font-size:14px}
+@media(max-width:420px){.grid4{grid-template-columns:repeat(3,1fr)}}
+.pos .sym{font-size:20px}
+.trip .tmain{min-width:0}.trip .tr{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}.trip .tr small{font-weight:600}
+.row{padding:11px 14px}.row .t{font-size:12px;line-height:1.35}.row .a{font-size:13.5px}
+.more{padding:4px 14px}.more details{border-bottom:1px solid var(--line)}.more details:last-child{border-bottom:0}
+.more summary{list-style:none;padding:13px 2px;margin:0;font-size:14px;font-weight:600;color:var(--fg);display:flex;justify-content:space-between}
+.more summary::after{content:'＋';color:var(--mut)}.more details[open] summary::after{content:'－'}.more summary::-webkit-details-marker{display:none}
+.more .feed .row{padding:8px 2px}.more table{margin-bottom:8px}.more .note{margin:0 2px 10px}
+.legend{margin:8px 0 0;gap:4px 10px}.lg-line.fcl{border-color:var(--vwap);border-top-width:3px}.lg-line.okl{border-color:var(--ok)}.lg-line.wrl{border-color:var(--warn)}
+.note.small{font-size:12px}.seg button{border-radius:999px;padding:4px 11px}.zb{border-radius:999px}
+footer{font-size:12px;color:var(--mut);text-align:center;margin-top:20px}
+.acct .big{font-size:30px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chip{background:var(--track);border-radius:999px;padding:4px 10px;font-size:12.5px;font-variant-numeric:tabular-nums}.chip b{font-weight:700}
+.trow{display:flex;justify-content:space-between;align-items:center;gap:10px}.trow .tgl{padding:6px 14px;font-size:13px}
 """
 
 
@@ -166,37 +195,16 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
 
     out = [f"<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
            f"<meta http-equiv=refresh content=120><meta name=referrer content=no-referrer><title>autostock</title>"
-           f"<style>{CSS}</style><main><header><h1>{e(' / '.join(cfg.symbols))} 자동매매</h1>"
+           f"<style>{CSS}</style><main><header><h1>{e(' · '.join(cfg.symbols))}<small>{MODES[mode]}</small></h1>"
            f"<span class=pill><span class='dot {dot}'></span>{e(label)}</span></header><nav>"]
     out.append(_nav(token, mode, cfg.modes) + "</nav>")
-    if mode != "paper":                               # 모의투자·실계좌: 증권사 실제 계좌 자산을 맨 위에
-        out.append(_account_card(cfg, mode))
-        if mode == "live":
-            out.append(_ext_toggle(cfg, mode, token))
-        out.append(_test_status(cfg, mode, events, live))
-    else:
-        if cfg.news_pick:
-            out.append(_news_card(cfg))
-        out.append(f"<div class='card note' style='margin-top:10px'>서버에 적용된 설정: 세션 "
-                   f"{e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))} · 정규장 밖 전략 "
-                   f"{e({'box': '시간외 고정 박스', 'always': f'항상 매매 ({cfg.fixed_qty or "자동"}주, ' + (f'{cfg.always_hold_min:.0f}분마다 교체)' if cfg.always_hold_min else '마감까지 보유)'), 'ai': 'Claude 판단', 'orb': '없음 (정규장만)'}.get(cfg.ext_strategy, '없음'))} · "
-                   f"코드 {e(_code_version())}</div>")
     if not running:
-        links = " · ".join(f"<a href='/?k={e(token)}&mode={m}'>{MODES[m]} 보기</a>" for m in cfg.modes if m in MODES)
-        out.append(f"<div class='card note'>이 탭({MODES[mode]})은 지금 실행 중이 아니라 지난 기록만 보입니다. 현재 실행 중: {links}</div>")
+        out.append(f"<div class='card note'>지금 실행 중이 아니라 지난 기록만 보입니다.</div>")
 
-    # ── 오늘 손익
+    # ── 총액: 실계좌·모의투자는 증권사 총 평가금액, 가상매매는 봇 장부 자산
     s = state or {"date": "", "realized_usd": 0.0, "trades": 0, "wins": 0, "losses": 0, "halted": "", "open": None, "history": []}
     o = s.get("open")
     unreal = (live or {}).get("unrealized_usd") if o and age is not None and age <= 150 else None
-    total = s["realized_usd"] + (unreal or 0)
-    target, limit = cfg.target_usd, cfg.max_loss_usd
-    pct = total / cfg.capital_usd * 100 if cfg.capital_usd else 0
-    span = target + limit
-    zero = limit / span * 100
-    pos = min(max((total + limit) / span * 100, 0), 100)
-    lo, hi = sorted((zero, pos))
-    color = "var(--up)" if total > 0 else "var(--dn)"
     led = (live or {}).get("ledger")
     if not led:
         try:
@@ -205,87 +213,53 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         except (FileNotFoundError, ValueError):
             led = None
     equity = cfg.capital_usd + (led["realized_usd"] if led else 0)
+    acct_total = ((webdata._acct_cache.get(mode) or {}).get("summary") or {}).get("total_krw") if mode != "paper" else None
+    total_usd = acct_total / fx if acct_total else equity          # '총액 대비' 계산 기준
+    if mode != "paper":
+        out.append(_account_card(cfg, mode))
+        if mode == "live":
+            out.append(_ext_toggle(cfg, mode, token))
+    elif cfg.news_pick:
+        out.append(_news_card(cfg))
+    tests = [x for x in events if x.get("kind") == "ordertest"]
+    if mode != "paper" and tests and not tests[-1].get("ok"):
+        out.append(_test_status(cfg, mode, events, live))          # 주문 테스트가 실패했을 때만 위에 크게
+
+    # ── 오늘 손익
+    total = s["realized_usd"] + (unreal or 0)
+    target, limit = cfg.target_usd, cfg.max_loss_usd
+    pct = total / cfg.capital_usd * 100 if cfg.capital_usd else 0
+    span = target + limit
+    zero = limit / span * 100
+    pos = min(max((total + limit) / span * 100, 0), 100)
+    lo, hi = sorted((zero, pos))
+    color = "var(--up)" if total > 0 else "var(--dn)"
     key = s.get("date") or ""
     sname = {"D": "주간거래", "P": "프리마켓", "A": "애프터마켓"}.get(key[-1:], "정규장") if key else ""
     out.append(f"<section class='card hero'><div class=k>{'이번 세션' if len(cfg.sessions) > 1 else '오늘'} 손익"
-               f"{' (평가 포함)' if unreal is not None else ''}"
-               f"{' · ' + sname + ' ' + e(key[:10]) if key else ''}</div>"
+               f"{' · 평가 포함' if unreal is not None else ''}{' · ' + sname if key else ''}</div>"
                f"<div class='big {cls(total)}'>{arrow(total)} {won(total)}</div>"
-               f"<div class=sub>{pct:+.2f}% · ${total:+.2f}"
-               f"{' · 실현 ' + won(s['realized_usd']) if unreal is not None else ''}</div>"
+               f"<div class=sub>운용금 대비 {pct:+.2f}%{f' · 총액 대비 {total / total_usd * 100:+.2f}%' if mode != 'paper' and total_usd else ''}</div>"
                f"<div class=meter role=img aria-label='손실한도와 목표 사이 현재 위치'><i style='left:{lo:.1f}%;width:{hi - lo:.1f}%;background:{color}'></i>"
                f"<b style='left:{zero:.1f}%'></b></div>"
-               f"<div class=ends><span>손실한도 -{cfg.daily_max_loss_krw:,.0f}</span><span>목표 +{cfg.daily_target_krw:,.0f}</span></div>"
+               f"<div class=ends><span>-{cfg.daily_max_loss_krw / 1e4:,.0f}만</span><span>+{cfg.daily_target_krw / 1e4:,.0f}만</span></div>"
                f"<div class=stats><div><div class=k>거래</div><div class=v>{s['trades']}회</div></div>"
                f"<div><div class=k>승 / 패</div><div class=v>{s['wins']} / {s['losses']}</div></div>"
-               f"<div><div class=k>{'봇 운용 자산' if mode != 'paper' else '현재 자산'}</div><div class=v>{equity * fx:,.0f}</div></div></div>"
-               + (f"<div class=note>시작 {cfg.capital_krw:,.0f}원 ({_kst(led['start'], '%m-%d %H:%M')}) → 누적 실현 "
-                  f"<b class='{cls(led['realized_usd'])}'>{won(led['realized_usd'])}</b> · {led.get('trades', 0)}건 · "
-                  f"채우지 않고 이 자산으로 계속 매매</div>" if led else "")
-               + (f"<div class=note>종료 사유: {e(s['halted'])}</div>" if s["halted"] else "") + "</section>")
-
-    # ── 전략 상태
-    orb = (live or {}).get("orb") if cfg.strategy == "orb" else None
-    if cfg.strategy == "orb":
-        rng = (f" · 오늘 범위 ${orb['ll']:.2f} ~ ${orb['hh']:.2f}" if orb and orb.get("hh") else "")
-        out.append(f"<h2>전략</h2><section class=card><b>개장 {cfg.orb_minutes}분 범위 돌파</b>"
-                   f"<span class=mut>{e(rng)}</span>"
-                   f"<div class=note>상태: {e((orb or {}).get('status') or '-')}<br>"
-                   f"범위 위로 뚫으면 {e(cfg.bull)}, 아래로 뚫으면 {e(cfg.bear or '-')} 매수 · 엔비디아·SOXX 동조 필요 · "
-                   + ("손절 범위 중간값 · " if cfg.orb_stop_mode == "mid" else f"손절 {cfg.orb_stop_pct}% · ")
-                   + f"익절 {cfg.orb_take_pct}% · " + (f"추적 {cfg.orb_trail_pct}% · " if cfg.orb_trail_pct else "추적 손절 없음 · ")
-                   + f"개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회<br>"
-                   + (f"<b>박스권</b>: 범위 폭 {cfg.box_min_width}% 이상인 날, 범위를 벗어나기 전까지 아래 경계 근처 반등 → {e(cfg.bull)}, "
-                      f"위 경계 근처 반락 → {e(cfg.bear)} · 익절은 반대 경계의 {cfg.box_target * 100:.0f}% 지점, 손절은 경계 밖 "
-                      f"{cfg.box_stop * 100:.0f}% · " + (f"하루 {cfg.box_max}회" if cfg.box_max else "횟수 제한 없음 (범위를 벗어나면 그날 끝)")
-                      + "<br>" if cfg.box else "")
-                   + (f"<b>노이즈 영역</b>: 개장 후 30분마다, 지난 {cfg.noise_lookback}일 같은 시각의 평균 움직임 밖이면 그 방향 매수, "
-                      f"영역 안으로 돌아오면 청산 (확인 사이 안전 손절 {cfg.noise_stop_pct}%)<br>" if cfg.noise else "")
-                   + (f"<b>변동성 필터</b>: 최근 5일 평균 하루 변동폭 {cfg.vol_filter_min}% 미만이면 그날 쉼<br>" if cfg.vol_filter_min else "")
-                   + (f"<b>매수 금액</b>: 손절 시 자본의 {cfg.risk_per_trade_pct}%만 잃도록 수량 조절<br>" if cfg.risk_per_trade_pct else "")
-                   + "Claude 는 진입마다 동의/반대 의견만 남깁니다(주문에는 미반영)."
-                   + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
-                      f"Claude 가 3분마다 직접 판단하는 실험 — 백테스트에서 이 시간대에 통한 규칙이 없었습니다."
-                      if cfg.ext_strategy == "ai" and len(cfg.sessions) > 1 else "")
-                   + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
-                      f"시간외 고정 박스 — 위·아래 경계에 2번 이상 닿은 옆걸음 구간에서 {e(cfg.bull)} 가 아래 20% 면 {e(cfg.bull)}, "
-                      f"위 20% 면 {e(cfg.bear)} 매수 · 목표 반대쪽 80% · 손절 경계 밖 10% (시간외 탭과 같은 규칙)"
-                      if cfg.ext_strategy == "box" and len(cfg.sessions) > 1 else "")
-                   + (f"<br><b>정규장 밖({', '.join(market_hours.LABEL[x] for x in cfg.sessions if x != 'regular')})</b>: "
-                      f"항상 매매 — 포지션이 없으면 바로 {cfg.fixed_qty or ''}주 매수 ({e(cfg.bull)} 최근 15분이 오르면 {e(cfg.bull)}, 내리면 {e(cfg.bear)}), "
-                      f"손절 {cfg.always_stop_pct:g}% · 익절 {cfg.always_take_pct:g}% · "
-                      + (f"{cfg.always_hold_min:.0f}분 뒤 정리" if cfg.always_hold_min else "세션 마감까지 보유")
-                      + (f" · 청산 뒤 {cfg.always_cooldown_min:.0f}분 쉬고 다시 매수" if cfg.always_cooldown_min else " · 청산 즉시 다시 매수")
-                      if cfg.ext_strategy == "always" and len(cfg.sessions) > 1 else "")
-                   + (f"<br>지금: <b>{market_hours.LABEL.get((live or {}).get('session') or '', '장 닫힘')}</b>"
-                      if live else "") + "</div></section>")
-
-    # ── 활동 로그
-    acts = webdata.activity(cfg, mode, 40)
-    if acts:
-        last_age = None
-        try:
-            last_age = (now - datetime.fromisoformat(acts[-1]["ts"])).total_seconds()
-        except (ValueError, KeyError):
-            pass
-        stale = f" · <span class=warnt>마지막 기록 {last_age / 60:.0f}분 전</span>" if last_age and last_age > 180 else ""
-        out.append(f"<h2>활동 로그 (1분마다, 한국시간){stale}</h2><section class='card feed actlog'>")
-        for x in acts[::-1]:
-            meta = " · ".join(v for v in (x.get("session"), x.get("strategy"), x.get("pnl")) if v)
-            out.append(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div><div class=a>{e(x.get('msg', ''))}</div>"
-                       + (f"<div class=r>{e(meta)}</div>" if meta else "") + "</div></div>")
-        out.append("</section>")
+               f"<div><div class=k>{'봇 운용 자산' if mode != 'paper' else '현재 자산'}</div><div class=v>{equity * fx / 1e4:,.1f}만</div></div></div>"
+               + (f"<div class=note>누적 실현 <b class='{cls(led['realized_usd'])}'>{won(led['realized_usd'])}</b> · {led.get('trades', 0)}건"
+                  f" · {_kst(led['start'], '%m-%d')}부터</div>" if led else "")
+               + (f"<div class='note warnt'>멈춤: {e(s['halted'])}</div>" if s["halted"] else "") + "</section>")
 
     # ── 보유 종목
     acct = webdata.account(cfg, mode, state, live)
     trips, _open_lots = webdata.round_trips(events, cfg.fee_pct)
-    out.append(f"<h2>보유 종목 <span class=mut style='font-weight:500'>· {e(acct.get('source', ''))}</span></h2>")
+    out.append("<h2>보유</h2>")
     if acct.get("loading"):
-        out.append("<section class='card note'>증권사 잔고를 불러오는 중입니다 (최대 30초). 잠시 뒤 새로고침하세요.</section>")
+        out.append("<section class='card note'>증권사 잔고를 불러오는 중입니다 (최대 30초).</section>")
     elif acct.get("error"):
         out.append(f"<section class='card note'>잔고 조회 실패: {e(acct['error'])}</section>")
     elif not acct["holdings"]:
-        out.append("<section class=card><span class=mut>보유 종목 없음 (현금 대기)</span></section>")
+        out.append("<section class='card empty'>보유 종목 없음 · 현금 대기</section>")
     for h in acct.get("holdings", []):
         q, avg, last = h["qty"], h["avg"], h.get("last")
         if o and h["symbol"] == o.get("symbol") and not last:
@@ -294,168 +268,147 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         value = h.get("value") or (last * q if last else None)
         pnl = h.get("pnl") if h.get("pnl") is not None else (value - cost if value else None)
         if h.get("bot") and o and unreal is not None and mode == "paper":
-            pnl = unreal                                   # 봇 장부: 왕복 수수료까지 뺀 평가손익
+            pnl = unreal
         ppct = pnl / cost * 100 if pnl is not None and cost else None
-        head = (f"<div class='{cls(pnl)} pnlbig'>{arrow(pnl)} {won(pnl)} <small>({ppct:+.2f}%)</small></div>"
+        head = (f"<div class='{cls(pnl)} pnlbig'>{arrow(pnl)} {won(pnl)} <small>{ppct:+.2f}%</small></div>"
                 if pnl is not None else "<div class=mut>평가 중</div>")
-        tag = "<span class=tag>봇 관리</span>" if h.get("bot") else "<span class='tag mutt'>봇 관리 밖</span>"
-        rows = [("수량", f"{q:,}주"), ("평균 단가", usd(avg)), ("현재가", usd(last) if last else "-"),
-                ("매입 금액", f"{usd(cost)} · {won(cost, False)}"),
-                ("평가 금액", f"{usd(value)} · {won(value, False)}" if value else "-")]
+        rows = [("수량", f"{q:,}주"), ("평단", usd(avg)), ("현재가", usd(last) if last else "-"),
+                ("평가금액", won(value, False) if value else "-")]
         if h.get("bot") and o and h["symbol"] == o["symbol"]:
             ent = o["entry_price"]
-            rows += [("손절가", f"{usd(ent * (1 - o['stop_pct'] / 100))} (-{o['stop_pct']:.1f}%)"),
-                     ("익절가", f"{usd(ent * (1 + o['take_pct'] / 100))} (+{o['take_pct']:.1f}%)")]
-            if o.get("trail_pct"):
-                rows.append(("추적 손절", f"고점 {usd(o.get('peak_price') or ent)}에서 -{o['trail_pct']}%"))
-            held = webdata._mins(o["entry_ts"], now.astimezone(ET).isoformat())
-            rows.append(("매수 시각", f"{_kst(o['entry_ts'], '%m-%d %H:%M')} ({held:.0f}분 보유)" if held is not None else _kst(o["entry_ts"])))
-        if h.get("name"):
-            rows.insert(0, ("종목명", h["name"]))
-        out.append(f"<section class='card hold'><div class=pos><div class=sym>{e(h['symbol'])} {tag}</div>{head}</div>"
-                   "<dl class=kv>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in rows) + "</dl></section>")
-    if acct.get("at"):
-        out.append(f"<div class='note pad'>잔고 기준 {datetime.fromtimestamp(acct['at'], KST):%H:%M:%S} (30초마다 갱신)</div>")
-    if acct.get("cash") is not None:
-        out.append(f"<div class='note pad'>주문 가능 금액 {usd(acct['cash'])} · {won(acct['cash'], False)}</div>")
+            rows += [("손절", usd(ent * (1 - o["stop_pct"] / 100))), ("익절", usd(ent * (1 + o["take_pct"] / 100)))]
+        tag = "" if h.get("bot") else " <span class='tag mutt'>봇 관리 밖</span>"
+        out.append(f"<section class='card hold'><div class=pos><div class=sym>{e(h['symbol'])}{tag}</div>{head}</div>"
+                   "<dl class='kv grid4'>" + "".join(f"<div><dt>{k}</dt><dd>{v}</dd></div>" for k, v in rows) + "</dl></section>")
     if acct.get("mismatch"):
         out.append(f"<div class='note pad warnt'>⚠ {e(acct['mismatch'])}</div>")
 
-    # ── 가격 차트
+    # ── 차트
     held_sym = o["symbol"] if o else cfg.bull
-    out.append("<h2>가격 차트 (1분봉)</h2><section class=card><div class=seg>"
+    out.append("<h2>차트</h2><section class=card><div class=seg>"
                + "".join(f"<button data-sym='{e(s_)}'{' class=on' if s_ == held_sym else ''}>{e(s_)}</button>" for s_ in cfg.symbols)
-               + "</div><div class=spans>"
-               + "".join(f"<button data-span='{v}'>{t}</button>" for v, t in ((60, "1시간"), (120, "2시간"), (240, "4시간"), (0, "오늘 전체")))
-               + "</div><div class=legend><span><i class='lg-up'></i>매수</span><span><i class='lg-dn'></i>매도</span>"
-               "<span><i class='lg-line vwap'></i>VWAP</span>"
-               + ("<span><i class='lg-line rng'></i>개장 범위</span>" if cfg.strategy == "orb" else "")
-               + (f"<span><i class='lg-band bl'></i>{e(cfg.bull)} 매수 시도 구간</span>"
-                  f"<span><i class='lg-band bs'></i>{e(cfg.bear)} 매수 시도 구간</span>" if cfg.box else "")
+               + "<span class=sp></span>"
+               + "".join(f"<button data-span='{v}'>{t}</button>" for v, t in ((60, "1h"), (120, "2h"), (240, "4h"), (0, "전체")))
+               + "<button data-czoom=out class=zb>－</button><button data-czoom=in class=zb>＋</button></div>"
+               f"<canvas id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></canvas>"
+               "<div class=legend><span><i class='lg-up'></i>매수</span><span><i class='lg-dn'></i>매도</span>"
+               "<span><i class='lg-line vwap'></i>VWAP</span><span><i class='lg-line fcl'></i>예상</span>"
+               "<span><i class='lg-line okl'></i>지난 예측 맞음</span><span><i class='lg-line wrl'></i>틀림</span></div>"
+               "<div id=cmsg class='note small'>불러오는 중…</div></section>")
 
-               + ("<span><i class='lg-line stp'></i>손절</span><span><i class='lg-line tkp'></i>익절</span>" if o else "")
-               + "<span><i class='lg-line' style='border-color:var(--vwap);border-top-width:3px'></i>예상선</span><span><i class='lg-line' style='border-color:var(--ok)'></i>지난 예측(맞음)</span><span><i class='lg-line' style='border-color:var(--warn)'></i>(틀림)</span>"
-               + f"<span class=sp></span><button data-czoom=out class=zb>－</button><button data-czoom=in class=zb>＋</button></div><canvas id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></canvas>"
-               "<div id=cmsg class=note>불러오는 중…</div>"
-               + (f"<div class=note>박스권 매수 시도: 1분봉이 빨간 구간에 닿고 양봉으로 끝나면(가운데선 아래) {e(cfg.bull)}, "
-                  f"파란 구간에 닿고 음봉으로 끝나면(가운데선 위) {e(cfg.bear)} 를 삽니다. 구간이 안 보이면 오늘 박스권을 하지 않는 날입니다.</div>"
-                  if cfg.box else "") + "</section>")
-
-    # ── 거래 내역
+    # ── 거래 내역: 각 거래의 손익과 총액 대비 %
     if trips:
-        today = [t for t in trips if (s.get("date") or "")[:10] and t["sell_ts"][:10] == (s.get("date") or "")[:10]]
-        shown = trips[-30:][::-1]
-        out.append(f"<h2>거래 내역 (한국시간) · 오늘 {len(today)}건 · 전체 {len(trips)}건</h2><section class='card feed'>")
-        for t in shown:
-            p = t["pnl"]
-            head = f"<span class='{cls(p)}'>{arrow(p)} {won(p)}" + (f" ({t['pct']:+.2f}%)" if t["pct"] is not None else "") + "</span>" if p is not None else ""
-            buy = (f"{_kst(t['buy_ts'], '%m-%d %H:%M')} · {usd(t['buy_px'])} × {t['qty']:,}주 = {usd(t['buy_amt'])} ({won(t['buy_amt'], False)})"
-                   if t["buy_px"] else "매수 기록 없음")
-            sell = f"{_kst(t['sell_ts'], '%m-%d %H:%M')} · {usd(t['sell_px'])} × {t['qty']:,}주 = {usd(t['sell_amt'])} ({won(t['sell_amt'], False)})"
-            held = f" · {t['hold_min']:.0f}분 보유" if t["hold_min"] is not None else ""
-            out.append(f"<div class='row trip'><div class=t>{_kst(t['sell_ts'])}</div><div><div class=h><span>{e(t['symbol'])} {t['qty']:,}주</span>{head}</div>"
-                       f"<div class=leg><b class=tu>매수</b> {buy}</div>"
-                       f"<div class=leg><b class=td>매도</b> {sell}</div>"
-                       f"<div class=r>수수료 {usd(t['fees'])} ({won(t['fees'], False)}){held} · {e(t['sell_reason'])}</div></div></div>")
-        out.append("</section>")
-
-        # ── 누적 손익
         done = [t for t in trips if t["pnl"] is not None]
+        today = [t for t in trips if (s.get("date") or "")[:10] and t["sell_ts"][:10] == (s.get("date") or "")[:10]]
+        cum = sum(t["pnl"] for t in done)
+        out.append(f"<h2>거래 <span class=hsub>오늘 {len(today)} · 전체 {len(trips)} · 합계 "
+                   f"<b class={cls(cum)}>{won(cum)}</b> (총액 대비 {cum / total_usd * 100:+.2f}%)</span></h2><section class='card feed'>")
+        for t in trips[-30:][::-1]:
+            p = t["pnl"]
+            tp = p / total_usd * 100 if p is not None and total_usd else None
+            right = (f"<span class='{cls(p)}'>{won(p)}</span><small class='{cls(p)}'>{t['pct']:+.2f}% · 총액 {tp:+.2f}%</small>"
+                     if p is not None and t["pct"] is not None else "")
+            legs = (f"{usd(t['buy_px'])} → {usd(t['sell_px'])}" if t["buy_px"] else f"매도 {usd(t['sell_px'])}")
+            held = f" · {t['hold_min']:.0f}분" if t["hold_min"] is not None else ""
+            out.append(f"<div class='row trip'><div class=t>{_kst(t['sell_ts'], '%m-%d')}<br>{_kst(t['sell_ts'])}</div>"
+                       f"<div class=tmain><div class=h><span>{e(t['symbol'])} <small class=mut>{t['qty']:,}주</small></span><span class=tr>{right}</span></div>"
+                       f"<div class=r>{legs}{held} · {e(_short_reason(t['sell_reason']))}</div></div></div>")
+        out.append("</section>")
         if done:
-            cum, pts = 0.0, []
+            pts, c = [], 0.0
             for t in done:
-                cum += t["pnl"]
-                pts.append(cum)
+                c += t["pnl"]
+                pts.append(c)
             wins = [t for t in done if t["pnl"] > 0]
-            fees = sum(t["fees"] for t in done)
-            bought = sum(t["buy_amt"] or 0 for t in done)
-            out.append(f"<h2>누적 성과 · {len(done)}건</h2><section class=card>{_equity_svg(pts, fx)}"
-                       f"<div class=stats4><div><div class=k>누적 실현손익</div><div class='v {cls(cum)}'>{won(cum)}</div></div>"
-                       f"<div><div class=k>승률</div><div class=v>{len(wins) / len(done) * 100:.0f}% <small class=mut>({len(wins)}/{len(done)})</small></div></div>"
-                       f"<div><div class=k>총 매수 금액</div><div class=v>{won(bought, False)}</div></div>"
-                       f"<div><div class=k>낸 수수료</div><div class=v>{won(fees, False)}</div></div>"
+            out.append(f"<section class=card style='margin-top:10px'>{_equity_svg(pts, fx)}"
+                       f"<div class=stats4><div><div class=k>승률</div><div class=v>{len(wins) / len(done) * 100:.0f}%</div></div>"
                        f"<div><div class=k>평균 이익</div><div class='v up'>{won(sum(t['pnl'] for t in wins) / len(wins)) if wins else '-'}</div></div>"
-                       f"<div><div class=k>평균 손실</div><div class='v dn'>{won(sum(t['pnl'] for t in done if t['pnl'] <= 0) / max(1, len(done) - len(wins))) if len(done) > len(wins) else '-'}</div></div></div></section>")
+                       f"<div><div class=k>평균 손실</div><div class='v dn'>{won(sum(t['pnl'] for t in done if t['pnl'] <= 0) / max(1, len(done) - len(wins))) if len(done) > len(wins) else '-'}</div></div>"
+                       f"<div><div class=k>수수료</div><div class=v>{won(sum(t['fees'] for t in done), False)}</div></div></div></section>")
 
-    # ── 세션별
+    # ── 접어 둔 자세한 정보
+    out.append("<h2>자세히</h2><section class='card more'>")
+    orb = (live or {}).get("orb") if cfg.strategy == "orb" else None
+    out.append(f"<details><summary>전략 · 지금 상태</summary><div class=note>{e((orb or {}).get('status') or '-')}</div>"
+               f"<div class=note>{_strategy_text(cfg)}</div></details>")
+    acts = webdata.activity(cfg, mode, 40)
+    if acts:
+        rows = "".join(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div class=a>{e(x.get('msg', ''))}</div></div>" for x in acts[::-1])
+        out.append(f"<details><summary>활동 로그 <span class=mut>· {_kst(acts[-1]['ts'])}</span></summary><div class='feed actlog'>{rows}</div></details>")
     if trips and len(cfg.sessions) > 1:
-        by = defaultdict(lambda: [0.0, 0, 0, 0.0])
+        by = defaultdict(lambda: [0.0, 0, 0])
         for t in trips:
-            if t["pnl"] is None:
-                continue
-            g = by[market_hours.session_of(t["buy_ts"] or t["sell_ts"])]
-            g[0] += t["pnl"]
-            g[1] += 1
-            g[2] += t["pnl"] > 0
-            g[3] += t["fees"]
-        strat = lambda x: ("개장 범위 돌파" if cfg.strategy == "orb" else "Claude 판단") if x == "regular" else (  # noqa: E731
-            "Claude 판단" if (cfg.ext_strategy or cfg.strategy) == "ai" else
-            "시간외 고정 박스" if cfg.ext_strategy == "box" else "항상 매매" if cfg.ext_strategy == "always" else "개장 범위 돌파")
-        out.append("<h2>시간대별 성과</h2><section class=card><table>"
-                   "<tr><th>시간대</th><th>전략</th><th class=r>손익</th><th class=r>거래</th><th class=r>승률</th></tr>")
-        for x in ("regular", "pre", "post", "day"):
-            if x in by:
-                p_, n_, w_, _f = by[x]
-                out.append(f"<tr><td>{market_hours.LABEL[x]}</td><td class=mutt>{strat(x)}</td>"
-                           f"<td class='r {cls(p_)}'>{won(p_)}</td><td class=r>{n_}</td><td class=r>{w_ / n_ * 100:.0f}%</td></tr>")
-        out.append("</table></section>")
-
-    # ── 일별
+            if t["pnl"] is not None:
+                g = by[market_hours.session_of(t["buy_ts"] or t["sell_ts"])]
+                g[0] += t["pnl"]
+                g[1] += 1
+                g[2] += t["pnl"] > 0
+        out.append("<details><summary>시간대별</summary><table><tr><th>시간대</th><th class=r>손익</th><th class=r>거래</th><th class=r>승률</th></tr>"
+                   + "".join(f"<tr><td>{market_hours.LABEL[x]}</td><td class='r {cls(by[x][0])}'>{won(by[x][0])}</td><td class=r>{by[x][1]}</td>"
+                             f"<td class=r>{by[x][2] / by[x][1] * 100:.0f}%</td></tr>" for x in ("regular", "pre", "post", "day") if x in by)
+                   + "</table></details>")
     if trips:
-        days = defaultdict(lambda: [0.0, 0, 0, 0.0])
+        days = defaultdict(lambda: [0.0, 0, 0])
         for t in trips:
-            if t["pnl"] is None:
-                continue
-            d = days[t["sell_ts"][:10]]
-            d[0] += t["pnl"]
-            d[1] += 1
-            d[2] += t["pnl"] > 0
-            d[3] += t["fees"]
-        out.append("<h2>일별 손익 (미국 날짜)</h2><section class=card><table>"
-                   "<tr><th>날짜</th><th class=r>손익</th><th class=r>수익률</th><th class=r>거래</th><th class=r>승률</th><th class=r>수수료</th></tr>")
-        for day in sorted(days, reverse=True)[:60]:
-            p, n_, w, f_ = days[day]
-            out.append(f"<tr><td>{e(day[5:])}</td><td class='r {cls(p)}'>{won(p)}</td>"
-                       f"<td class='r {cls(p)}'>{p / cfg.capital_usd * 100:+.1f}%</td><td class=r>{n_}</td>"
-                       f"<td class=r>{w / n_ * 100:.0f}%</td><td class=r>{won(f_, False)}</td></tr>")
-        out.append("</table></section>")
-
-    # ── AI 판단
+            if t["pnl"] is not None:
+                d = days[t["sell_ts"][:10]]
+                d[0] += t["pnl"]
+                d[1] += 1
+                d[2] += t["pnl"] > 0
+        out.append("<details><summary>일별</summary><table><tr><th>날짜</th><th class=r>손익</th><th class=r>총액 대비</th><th class=r>거래</th><th class=r>승률</th></tr>"
+                   + "".join(f"<tr><td>{e(d[5:])}</td><td class='r {cls(days[d][0])}'>{won(days[d][0])}</td>"
+                             f"<td class='r {cls(days[d][0])}'>{days[d][0] / total_usd * 100:+.2f}%</td><td class=r>{days[d][1]}</td>"
+                             f"<td class=r>{days[d][2] / days[d][1] * 100:.0f}%</td></tr>" for d in sorted(days, reverse=True)[:60])
+                   + "</table></details>")
     decisions = [x for x in events if x.get("kind") == "decision"][-25:][::-1]
     if decisions:
-        out.append("<h2>AI 판단 기록 (한국시간)</h2><section class='card feed'>")
-        for x in decisions:
-            act = x.get("action", "")
-            kind = "buy" if act == "BUY" else "sell" if act in ("SELL", "DISAGREE") else ""
-            out.append(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div><div class=h><span>"
-                       f"<span class='tag {kind}'>{ACTION.get(act, e(str(act)))}</span> {e(str(x.get('symbol') or ''))}</span>"
-                       f"<span class=mut style='font-weight:500;font-size:13px'>확신 {x.get('confidence', 0) * 100:.0f}%</span></div>"
-                       f"<div class=r>{e(str(x.get('reason', '')))}</div></div></div>")
-        out.append("</section>")
-
-    # ── 시스템 기록
+        rows = "".join(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div><span class='tag {'buy' if x.get('action') == 'BUY' else 'sell' if x.get('action') in ('SELL', 'DISAGREE') else ''}'>"
+                       f"{ACTION.get(x.get('action', ''), e(str(x.get('action', ''))))}</span> <span class=a>{e(str(x.get('reason', '')))}</span></div></div>" for x in decisions)
+        out.append(f"<details><summary>AI 판단 기록</summary><div class=feed>{rows}</div></details>")
     system = [x for x in events if x.get("kind") in ("ordertest", "error")][-6:][::-1]
     if system:
-        out.append("<h2>시스템 기록 (한국시간)</h2><section class='card feed'>")
-        for x in system:
-            if x["kind"] == "ordertest":
-                title = f"주문 테스트 {'통과' if x.get('ok') else '실패'}" + (f" ({x.get('attempt')}회차)" if x.get("attempt") else "")
-            else:
-                title = "오류"
-            out.append(f"<div class=row><div class=t>{_kst(x['ts'])}<br>{_kst(x['ts'], '%m-%d')}</div><div><div class=h><span>{e(title)}</span></div>"
-                       f"<div class=r>{e(str(x.get('detail', '')))}</div></div></div>")
-        out.append("</section>")
-
+        rows = "".join(f"<div class=row><div class=t>{_kst(x['ts'], '%m-%d %H:%M')}</div><div class=a>"
+                       f"{'주문 테스트 ' + ('통과' if x.get('ok') else '실패') if x['kind'] == 'ordertest' else '오류'} · {e(str(x.get('detail', ''))[:160])}</div></div>" for x in system)
+        out.append(f"<details><summary>시스템 기록</summary><div class=feed>{rows}</div></details>")
+    if mode != "paper" and not (tests and not tests[-1].get("ok")):
+        out.append(f"<details><summary>설정 · 주문 테스트</summary>{_test_status(cfg, mode, events, live)}</details>")
+    else:
+        out.append(f"<details><summary>설정</summary><div class=note>세션 {e(', '.join(market_hours.LABEL.get(x, x) for x in cfg.sessions))} · "
+                   f"정규장 밖 전략 {e({'box': '시간외 고정 박스', 'always': '항상 매매', 'ai': 'Claude 판단', 'orb': '없음'}.get(cfg.ext_strategy, '없음'))} · 코드 {e(_code_version())}</div></details>")
+    out.append("</section>")
     if not state and not events:
         out.append("<div class='card note' style='margin-top:14px'>아직 기록이 없습니다. 이 모드로 장이 열린 적이 없습니다.</div>")
-    model = (live or {}).get("model") or cfg.model
-    out.append(f"<footer>{now:%m-%d %H:%M:%S} 기준 · 차트 10초, 나머지 2분마다 갱신 · ● 실행 중인 모드<br>"
-               f"환율 {fx:,.0f}원 환산 · 수수료 편도 {cfg.fee_pct}% 반영 · AI {e(model)} · 정규장 한국시간 23:30~06:00 (서머타임 22:30~05:00)"
-               f"{' · 애프터마켓 06:00~09:55' if 'post' in cfg.sessions else ''}"
-               f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}"
-               f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>"
+    out.append(f"<footer>{now:%m-%d %H:%M} · 환율 {fx:,.0f}원 · 수수료 편도 {cfg.fee_pct}%</footer></main>"
                f"{_appv()}<script>{CHART_CORE}</script><script>{CHART_JS}</script>")
     return "".join(out)
+
+
+def _short_reason(r: str) -> str:
+    r = str(r or "")
+    for k, v in (("장 마감 전 강제 청산", "마감 정리"), ("손절", "손절"), ("익절", "익절"), ("추적", "추적 청산"), ("반대 방향", "방향 전환"),
+                 ("항상 매매", "시간 정리"), ("영역", "노이즈 이탈")):
+        if k in r:
+            return v if k != "손절" and k != "익절" else r.split("(")[0].strip()[:14]
+    return r[:16]
+
+
+def _strategy_text(cfg) -> str:
+    e = html.escape
+    parts = [f"<b>돌파</b> 개장 {cfg.orb_minutes}분 범위를 뚫으면 그 방향(엔비디아·SOXX 동조) · 개장 {cfg.orb_window_min}분까지 · 하루 {cfg.orb_max_trades}회 · "
+             + ("손절 범위 중간 · " if cfg.orb_stop_mode == "mid" else f"손절 {cfg.orb_stop_pct}% · ") + f"익절 {cfg.orb_take_pct:g}%"
+             + (f" · 분할매수 {cfg.scale_in_frac:g}→+{cfg.scale_in_add_pct:g}%" if cfg.scale_in_frac < 1 else "")]
+    if cfg.box:
+        parts.append(f"<b>박스권</b> 범위 폭 {cfg.box_min_width:g}% 이상, 경계 근처 반등 · " + (f"하루 {cfg.box_max}회" if cfg.box_max else "횟수 제한 없음"))
+    if cfg.noise:
+        parts.append(f"<b>노이즈</b> 30분마다 {cfg.noise_lookback}일 평균 움직임 밖이면 그 방향")
+    if cfg.vol_filter_min:
+        parts.append(f"<b>필터</b> 5일 평균 변동폭 {cfg.vol_filter_min:g}% 미만이면 쉼")
+    if cfg.risk_per_trade_pct:
+        parts.append(f"<b>수량</b> 손절 시 자본 {cfg.risk_per_trade_pct:g}%")
+    ext = {"box": "시간외 고정 박스", "always": f"항상 매매 {cfg.fixed_qty or ''}주", "ai": "Claude 판단"}.get(cfg.ext_strategy)
+    if ext and len(cfg.sessions) > 1:
+        parts.append(f"<b>정규장 밖</b> {e(ext)}")
+    return "<br>".join(parts)
 
 
 def ext_card(adv: dict, cfg) -> str:
@@ -743,19 +696,13 @@ def _ext_toggle(cfg, mode: str, token: str) -> str:
     """장외(프리·애프터·주간거래) 매매 켜기/끄기. 켜면 정규장 밖에서는 시간외 고정 박스 규칙으로 매매."""
     e = html.escape
     on = any(x in cfg.sessions for x in config.EXT_SESSIONS)
-    ov = config.read_overrides(cfg.data_dir).get(mode, {}).get("ext_trading")
     nxt = "off" if on else "on"
-    strat = {"box": "시간외 고정 박스", "always": "항상 매매", "ai": "Claude 판단", "orb": "없음"}.get(cfg.ext_strategy, "시간외 고정 박스")
     msg = ("정규장 밖에서도 실제 돈으로 매매합니다. 시간외에는 꾸준히 이긴 규칙이 없었고 호가 차이가 넓습니다. 켤까요?"
            if not on else "장외 매매를 끕니다. 보유 중이면 그 포지션이 정리된 뒤 꺼집니다.")
-    return (f"<section class='card' style='margin-top:10px'><div class=h style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
-            f"<div><b>장외 거래 (프리·애프터·주간거래)</b><div class=note style='margin-top:2px'>"
-            f"{'<b class=up>켜짐</b> · ' + e(strat) + ' 규칙으로 매매' if on else '<b class=mut>꺼짐</b> · 정규장(23:30~)만 매매'}"
-            f"{' · 페이지에서 설정함' if ov is not None else ''}</div></div>"
-            f"<form method=post action='/toggle?k={e(token)}&mode={e(mode)}&ext={nxt}' onsubmit=\"return confirm('{e(msg)}')\">"
-            f"<button class=tgl type=submit>{'끄기' if on else '켜기'}</button></form></div>"
-            "<div class=note>켜면 1분 안에 봇이 반영합니다 (재시작 없음). 시간외에는 위·아래 경계에 2번씩 닿은 박스 아래쪽이면 SOXL, 위쪽이면 SOXS 를 사고, "
-            "목표는 박스 반대쪽 80%, 손절은 경계 밖 10%, 각 시간대 마감 5분 전에 정리합니다.</div></section>")
+    return (f"<section class='card' style='margin:10px 0;padding:12px 16px'><div class=trow>"
+            f"<div><b>장외 거래 (프리·애프터·주간거래)</b> <span class={'up' if on else 'mut'}>{'켜짐' if on else '꺼짐'}</span></div>"
+            f"<form method=post action='/toggle?k={e(token)}&mode={e(mode)}&ext={nxt}' onsubmit=\"return confirm('{e(msg)}')\" style='margin:0'>"
+            f"<button class=tgl type=submit>{'끄기' if on else '켜기'}</button></form></div></section>")
 
 
 _ver: list = [0.0, ""]
@@ -827,27 +774,24 @@ def _account_card(cfg, mode: str) -> str:
     e = html.escape
     acct = webdata._acct_cache.get(mode) or {}
     sm = acct.get("summary") or {}
-    head = "<h2>계좌 자산 (한국투자증권 실제 잔고)</h2><section class='card hero'>"
     if not acct:
-        return head + "<div class=note>계좌를 불러오는 중입니다 (30초마다 갱신).</div></section>"
+        return "<section class='card acct'><div class=note>계좌를 불러오는 중… (30초마다 갱신)</div></section>"
     if acct.get("error") or sm.get("error") or sm.get("total_krw") is None:
-        return head + f"<div class=note>계좌 자산을 불러오지 못했습니다: {e(acct.get('error') or sm.get('error') or '총자산 값 없음')}</div></section>"
-    w = lambda v: f"{v:,.0f}원" if v is not None else "-"   # noqa: E731
+        return f"<section class='card acct'><div class=note>계좌 자산을 불러오지 못했습니다: {e(acct.get('error') or sm.get('error') or '총자산 값 없음')}</div></section>"
     rate = sm.get("usd_rate") or cfg.usdkrw
     usd = sm.get("usd_cash")
     pnl = sm.get("pnl_krw")
-    rows = [("원화 예수금", w(sm.get("cash_krw"))),
-            ("달러 예수금", f"${usd:,.2f} (≈ {usd * rate:,.0f}원)" if usd is not None else "-"),
-            ("주문 가능 달러", f"${acct['cash']:,.2f}" if acct.get("cash") is not None else
-             (f"${sm['usd_orderable']:,.2f}" if sm.get("usd_orderable") is not None else "-")),
-            ("주식 평가금액", w(sm.get("stock_krw"))),
-            ("평가손익", f"<span class={'up' if (pnl or 0) > 0 else 'dn' if (pnl or 0) < 0 else 'mut'}>{pnl:+,.0f}원</span>" if pnl is not None else "-"),
-            ("출금 가능", w(sm.get("withdrawable_krw")))]
-    return (head + f"<div class=k>총 평가금액</div><div class=big>{sm['total_krw']:,.0f}원</div>"
-            f"<dl class=kv>{''.join(f'<dt>{k}</dt><dd>{v}</dd>' for k, v in rows)}</dl>"
-            f"<div class=note>봇은 이 중 운용금 {cfg.capital_krw:,.0f}원만 씁니다"
-            f"{' (나머지는 레버리지 ETF 기본예탁금으로 둠)' if mode == 'live' else ''} · 환율 {rate:,.1f}원 · "
-            f"{datetime.fromtimestamp(acct['at'], KST):%H:%M:%S} 기준</div></section>")
+    chips = [("원화", f"{sm['cash_krw'] / 1e4:,.0f}만" if sm.get("cash_krw") is not None else None),
+             ("달러", f"${usd:,.0f}" if usd is not None else None),
+             ("주식", f"{sm['stock_krw'] / 1e4:,.1f}만" if sm.get("stock_krw") is not None else None),
+             ("평가손익", f"<span class={'up' if (pnl or 0) > 0 else 'dn' if (pnl or 0) < 0 else 'mut'}>{pnl:+,.0f}원</span>" if pnl is not None else None)]
+    return (f"<section class='card acct'><div class=k style='font-size:12px;color:var(--mut)'>총 평가금액</div>"
+            f"<div class=big>{sm['total_krw']:,.0f}원</div>"
+            f"<div class=chips>{''.join(f'<span class=chip>{k} <b>{v}</b></span>' for k, v in chips if v)}</div>"
+            f"<div class=note>봇 운용금 {cfg.capital_krw / 1e4:,.0f}만원 · 달러 ≈ {usd * rate / 1e4:,.0f}만원 · "
+            f"{datetime.fromtimestamp(acct['at'], KST):%H:%M} 기준</div></section>"
+            if usd is not None else
+            f"<section class='card acct'><div class=big>{sm['total_krw']:,.0f}원</div><div class=note>봇은 이 중 운용금 {cfg.capital_krw:,.0f}원만 씁니다</div></section>")
 
 
 def _equity_svg(pts: list[float], fx: float) -> str:

@@ -1229,8 +1229,8 @@ def test_account_total_assets_card(kis, tmp_path):
     cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), capital_krw=2_000_000, modes=("live",))
     webdata._acct_cache["live"] = {"source": "x", "holdings": [], "cash": 2105.59, "summary": sm, "at": 0}
     page = web.render(cfg, "live", "t")
-    assert "총 평가금액" in page and "13,004,361원" in page and "$2,105.59 (≈ 3,054,158원)" in page
-    assert "운용금 2,000,000원만" in page and "봇 운용 자산" in page
+    assert "총 평가금액" in page and "13,004,361원" in page and "달러 <b>$2,106</b>" in page
+    assert "봇 운용금 200만원" in page and "봇 운용 자산" in page
     webdata._acct_cache["live"] = {"source": "x", "holdings": [], "summary": {"error": "KISError: x"}, "at": 0}
     assert "계좌 자산을 불러오지 못했습니다" in web.render(cfg, "live", "t")
     webdata._acct_cache.clear()
@@ -1633,3 +1633,17 @@ def test_every_timeframe_shows_the_same_stitched_forecast(tmp_path):
     assert ts == sorted(ts) and len(set(ts)) == len(ts)
     j = 31                                                                                  # 1분봉 30개 뒤부터 5분봉 예측
     assert abs(a["pts"][j][1] / a["pts"][j - 1][1] - 1) < 0.01                               # 이음매에서 끊기지 않음
+
+
+def test_trades_show_pnl_against_account_total(tmp_path):
+    from autostock import web, webdata
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), modes=("live",), capital_krw=2_000_000, usdkrw=1400)
+    ev = [{"ts": "2026-11-25T09:58:00-05:00", "kind": "buy", "symbol": "SOXL", "qty": 28, "price": 35.18},
+          {"ts": "2026-11-25T10:07:00-05:00", "kind": "sell", "symbol": "SOXL", "qty": 28, "price": 33.62, "pnl_usd": -48.37, "reason": "손절 -4.40%"}]
+    with open(tmp_path / "journal_live.jsonl", "w") as f:
+        f.write("\n".join(json.dumps(x) for x in ev) + "\n")
+    webdata._acct_cache["live"] = {"source": "x", "holdings": [], "summary": {"total_krw": 12_000_000, "usd_cash": 1000.0}, "at": 0}
+    page = web.render(cfg, "live", "t")
+    webdata._acct_cache.clear()
+    assert "-67,718원" in page and "총액 -0.56%" in page                                    # 48.37달러 × 1400 / 1200만원
+    assert "<details><summary>전략" in page and "합계" in page
