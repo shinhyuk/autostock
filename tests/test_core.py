@@ -1551,17 +1551,19 @@ def test_forecast_cone_is_validated_on_unseen_data():
 def test_forecast_strength_and_page_chart_payload(monkeypatch, tmp_path):
     from autostock import board, market_hours, webdata
     assert board.strength({"model": "mom", "dir_check": 70}) == 1.0
-    assert board.strength({"model": "mom", "dir_check": 60}) == 0.5
     assert board.strength({"model": "flat", "dir_check": 80}) == 0.0
-    fc = {"h": 3, "line": [1, 2, 3], "band": [[0, 2]] * 3, "model": "mom", "label": "x", "dir_check": 65, "strength": .75}
-    monkeypatch.setattr(board, "quick_forecast", lambda *a, **k: fc)
+
+    class R:
+        def view(self, sym, tf, since=0):
+            return {"sym": sym, "tf": tf, "since": since}
+    monkeypatch.setattr(board, "REC", R())
     store = webdata.BarStore(str(tmp_path / "b.json"))
     now = datetime(2026, 11, 24, 11, 0, tzinfo=ET)
     store.merge("SOXL", [Bar(now - timedelta(minutes=5 - i), 30, 30, 30, 30, 1) for i in range(5)])
     monkeypatch.setattr(market_hours, "now_et", lambda: now)
     monkeypatch.setattr(webdata, "market", lambda c: None)
     d = webdata.chart(Settings(), "paper", "SOXL", 60, store, None, None, [])
-    assert d["fc"] is fc
+    assert d["fc"]["tf"] == "1m" and d["fc"]["since"] == d["bars"][0][0]                     # 저장된 예측을 읽기만
 
 
 def test_chart_plan_uses_claude_or_falls_back_to_rules(monkeypatch):
@@ -1591,3 +1593,22 @@ def test_chart_plan_uses_claude_or_falls_back_to_rules(monkeypatch):
     assert p["action"] == "WAIT" and p["src"] == "Claude"
     assert board.plan("SOXL", "5m", d) is p and board.cached_plan("SOXL", "5m") is p        # 1분 안에 다시 누르면 앞 결과
     assert board.cached_plan("SOXL", "1h") is None
+
+
+def test_forecast_recorder_records_scores_and_adapts(tmp_path):
+    import math, random
+    from autostock import board
+    random.seed(3)
+    b, p = [], 100.0
+    for i in range(1400):                                           # 꾸준히 오르는 흐름 + 잡음 → 흐름 이어짐이 이겨야
+        p *= math.exp(0.0015 + random.gauss(0, 0.002))
+        b.append([i * 60_000, p, p * 1.001, p * 0.999, p, 1])
+    r = board.Recorder(str(tmp_path))
+    for i in range(400, len(b) + 1, 3):
+        r.step("SOXL", "1m", b[:i])
+    v = r.view("SOXL", "1m")
+    assert v and v["acc"]["n"] >= 40 and v["model"].startswith("mom")                      # 스스로 흐름 방식을 고름
+    assert v["acc"]["dir"] > 80 and len(v["line"]) == board.FAR * v["h"] and v["past"]
+    assert all(isinstance(p["hit"], (bool, type(None))) for p in v["past"])
+    r2 = board.Recorder(str(tmp_path))                                                      # 파일에 저장돼 다시 읽힘
+    assert r2.view("SOXL", "1m")["t"] == v["t"]

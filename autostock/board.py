@@ -133,6 +133,20 @@ def bounce_stats(b: list[list], k: int = 3, step: int = 20) -> dict:
     return res   # sup: [반등, 이탈], res: [되밀림, 돌파]
 
 
+def _rec_view(sym: str, tf: str, b: list[list]) -> dict | None:
+    """서버가 저장해 둔 예측을 읽기만 한다. 처음 보는 종목·봉 단위면 한 번 바로 만들어 둔다."""
+    if REC is None:
+        return None
+    v = REC.view(sym, tf, b[max(0, len(b) - 1100)][0])
+    if v is None:
+        try:
+            REC.step(sym, tf, b)
+            v = REC.view(sym, tf, b[max(0, len(b) - 1100)][0])
+        except Exception as e:
+            log.info("예측 만들기 실패 %s %s: %s", sym, tf, e)
+    return v
+
+
 def _near(lv: list[dict], price: float, k: int = 3) -> list[dict]:
     """차트가 어지럽지 않게 현재가 위·아래로 가까운 선 k 개씩만 (2번 이상 닿은 선)."""
     strong = [x for x in lv if x["n"] >= 2]
@@ -188,8 +202,7 @@ def analyze(sym: str, tf: str, extra: list[list] | None = None) -> dict:
     return {"sym": sym, "tf": tf, "bars": b, "last": last, "atr": a,
             "levels": _near(lv, last), "sup": sup, "res": res,
             "box": {"hi": bx["hi"], "lo": bx["lo"], "start": bx["start"] * 1000} if bx else None,
-            "zones": zones, "stats": st, "kis_bars": added,
-            "fc": forecast(bars_daily(sym) if tf == "1d" else b, tf)}
+            "zones": zones, "stats": st, "kis_bars": added, "fc": _rec_view(sym, tf, b)}
 
 
 def _ma(xs: list[float], n: int) -> float | None:
@@ -472,7 +485,8 @@ def _plan_input(sym: str, tf: str, d: dict) -> dict:
             "박스": d.get("box") and [round(d["box"]["lo"], 2), round(d["box"]["hi"], 2)],
             "지지대 근처 반등률%": rate(st.get("sup")), "저항대 근처 되밀림률%": rate(st.get("res")),
             "예상선": fc and {"방식": fc.get("label"), f"{fc.get('h')}봉 뒤": fc.get("line") and round(fc["line"][fc["h"] - 1], 2),
-                            "방향 적중%": fc.get("dir_check") and round(fc["dir_check"])},
+                            "지난 예측 방향 적중%": (fc.get("acc") or {}).get("dir") and round(fc["acc"]["dir"]),
+                            "채점한 예측 수": (fc.get("acc") or {}).get("n")},
             "장기": lt and not lt.get("error") and {"50일평균": round(lt["ma50"], 2), "200일평균": round(lt["ma200"], 2),
                                                  "1년고점대비%": round(lt["dd"], 1), "감가": lt.get("decay")}}
 
@@ -541,8 +555,205 @@ def warmer(stop: threading.Event, recent_fn=None, every: float = 240) -> None:
             try:
                 extra = recent_fn(sym) if recent_fn else []
                 analyze(sym, tf, extra)
-                if tf == "1m":
-                    quick_forecast(sym, extra)
             except Exception as e:
                 log.info("미리 계산 실패 %s %s: %s", sym, tf, e)
         stop.wait(every)
+
+
+# ── 예측 기록기: 서버가 주기적으로 예측을 만들어 저장하고, 시간이 지나면 실제와 비교해 채점한다.
+#    후보 방식을 모두 같이 기록해 두고, 최근에 실제로 가장 잘 맞은 방식을 스스로 고른다(적응형).
+#    범위 폭도 최근 실제 적중률(50% 띠에 들어온 비율)을 보고 스스로 넓히거나 좁힌다.
+import os
+
+# 후보: 방향 없음 + (흐름 이어짐 / 평균으로 되돌림) × 보는 봉 수 × 기울기 세기(1, 1/2, 1/4 — 세기를 줄이면 오차가 줄 때가 많다)
+CANDS = {"flat": ("flat", 0, 1.0)}
+for _n in (10, 20, 40):
+    for _a in (1.0, 0.5, 0.25):
+        CANDS[f"mom{_n}x{_a}"] = ("mom", _n, _a)
+for _n in (10, 20):
+    for _a in (1.0, 0.5):
+        CANDS[f"rev{_n}x{_a}"] = ("rev", _n, _a)
+CLABEL = {k: ("방향 없음" if v[0] == "flat" else f"최근 {v[1]}봉 흐름" if v[0] == "mom" else f"{v[1]}봉 평균으로 되돌림")
+          + ("" if v[2] == 1.0 or v[0] == "flat" else f" (세기 {v[2]:g})") for k, v in CANDS.items()}
+HORIZON = {"1m": 30, "5m": 24, "15m": 16, "1h": 12, "1d": 10}
+
+
+def _cand_drift(lc, i: int, name: str) -> tuple[float, int]:
+    """(봉당 기대 로그수익, 기울이는 최대 봉 수)."""
+    kind, n, a = CANDS.get(name, ("flat", 0, 1.0))
+    if kind == "mom" and i >= n:
+        return a * (lc[i] - lc[i - n]) / n, 10 ** 9
+    if kind == "rev" and i >= n:
+        return a * (float(np.mean(lc[i - n + 1:i + 1])) - lc[i]) / (n / 2), max(1, n // 2)
+    return 0.0, 0
+
+
+class Recorder:
+    def __init__(self, data_dir: str):
+        self.dir = os.path.join(data_dir, "forecasts")
+        os.makedirs(self.dir, exist_ok=True)
+        self.recs: dict = {}            # key → [record, ...]
+        self.state: dict = {}           # key → {"w": 범위 폭 배율}
+        self.seen: dict = {"SOXL|1m": 0.0, "SOXS|1m": 0.0, "SOXL|5m": 0.0, "SOXS|5m": 0.0}
+        self.lock = threading.Lock()
+
+    # 저장소
+    def _path(self, key: str) -> str:
+        return os.path.join(self.dir, key.replace("|", "_") + ".jsonl")
+
+    def _load(self, key: str) -> list:
+        if key not in self.recs:
+            rows = []
+            try:
+                with open(self._path(key), encoding="utf-8") as f:
+                    rows = [json.loads(x) for x in f if x.strip()]
+            except (FileNotFoundError, ValueError):
+                pass
+            self.recs[key] = rows[-1500:]
+            st = self.state.setdefault(key, {"w": 1.0})
+            if rows:
+                st["w"] = rows[-1].get("w", 1.0)
+        return self.recs[key]
+
+    def _save(self, key: str) -> None:
+        tmp = self._path(key) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for r in self.recs[key][-1500:]:
+                f.write(json.dumps(r, separators=(",", ":")) + "\n")
+        os.replace(tmp, self._path(key))
+
+    def touch(self, sym: str, tf: str) -> None:
+        self.seen[f"{sym}|{tf}"] = time.time()
+
+    # 채점과 방식 고르기
+    def _score(self, rows: list, n: int = 60) -> dict:
+        done = [r for r in rows if r.get("res")][-n:]
+        out = {}
+        for c in CANDS:
+            e = [r["res"]["err"][c] for r in done if c in r["res"]["err"]]
+            d = [r["res"]["dir"][c] for r in done if r["res"]["dir"].get(c) is not None]
+            if e:
+                out[c] = {"n": len(e), "err": float(np.mean(e)) * 100, "dir": (sum(d) / len(d) * 100) if d else None}
+        cov = [r["res"]["in50"] for r in done]
+        out["_in50"] = (sum(cov) / len(cov) * 100) if cov else None
+        out["_n"] = len(done)
+        return out
+
+    def _pick(self, sc: dict, b, tf: str) -> str:
+        cands = {c: v for c, v in sc.items() if not c.startswith("_") and v["n"] >= 20}
+        if cands:                                         # 최근 실제 오차가 가장 작은 방식
+            return min(cands, key=lambda c: cands[c]["err"])
+        f = forecast(b, tf)                               # 기록이 쌓이기 전: 과거 데이터 검증으로 고른 방식
+        return {"mom": "mom20x0.5", "rev": "rev20x0.5"}.get((f or {}).get("model"), "flat")
+
+    def _resolve(self, rows: list, b: list) -> bool:
+        ts = [x[0] for x in b]
+        changed = False
+        for r in rows:
+            if r.get("res"):
+                continue
+            tgt = r["t"] + r["h"] * r["step"]
+            if tgt > ts[-1]:
+                continue
+            j = int(np.searchsorted(ts, tgt, side="right")) - 1
+            if j < 0:
+                continue
+            act = float(math.log(b[j][4] / r["p0"]))
+            r["res"] = {"a": float(b[j][4]), "err": {c: round(abs(p - act), 6) for c, p in r["pred"].items()},
+                        "dir": {c: bool((p > 0) == (act > 0)) if abs(p) > 1e-9 else None for c, p in r["pred"].items()},
+                        "in50": bool(r["lo50"] <= b[j][4] <= r["hi50"])}
+            changed = True
+        return changed
+
+    def step(self, sym: str, tf: str, b: list) -> None:
+        key = f"{sym}|{tf}"
+        h = HORIZON.get(tf, 20)
+        stepms = TF[tf][2] * 60_000
+        if len(b) < 200:
+            return
+        with self.lock:
+            rows = self._load(key)
+            st = self.state.setdefault(key, {"w": 1.0})
+            changed = self._resolve(rows, b)
+            sc = self._score(rows)
+            if sc.get("_in50") is not None and sc["_n"] >= 20:      # 범위 폭을 실제 적중률에 맞춰 조금씩 조정
+                st["w"] = min(3.0, max(0.5, st["w"] * (1.05 if sc["_in50"] < 45 else 0.95 if sc["_in50"] > 55 else 1.0)))
+            every = max(1, h // 4) * stepms                          # 예측은 h/4 봉마다 하나씩 남긴다
+            if not rows or b[-1][0] - rows[-1]["t"] >= every:
+                lc = np.log([x[4] for x in b])
+                i = len(lc) - 1
+                pick = self._pick(sc, b, tf)
+                pred = {}
+                for c in CANDS:
+                    d, cap = _cand_drift(lc, i, c)
+                    pred[c] = float(d * min(h, cap))
+                d, cap = _cand_drift(lc, i, pick)
+                line, band = [], []
+                for k in range(1, h + 1):
+                    q = _cone(lc, i, k, "flat", widen=st["w"])
+                    if not q:
+                        continue
+                    mid = lc[i] + d * min(k, cap)
+                    line.append(round(float(math.exp(mid)), 4))
+                    band.append([round(float(math.exp(mid + q[1] - q[2])), 4), round(float(math.exp(mid + q[3] - q[2])), 4)])
+                if line:
+                    rows.append({"t": int(b[-1][0]), "p0": float(b[-1][4]), "h": len(line), "step": stepms, "model": pick,
+                                 "w": round(st["w"], 3), "pred": {c: round(v, 6) for c, v in pred.items()},
+                                 "line": line, "band": band, "lo50": band[-1][0], "hi50": band[-1][1]})
+                    changed = True
+            if changed:
+                self._save(key)
+
+    def view(self, sym: str, tf: str, since_ms: float = 0) -> dict | None:
+        """화면용: 가장 최근 예측(시각 포함, 기본의 FAR 배까지 평평하게 이어 붙임) + 지난 예측들과 채점."""
+        key = f"{sym}|{tf}"
+        self.touch(sym, tf)
+        with self.lock:
+            rows = self._load(key)
+            if not rows:
+                return None
+            sc = self._score(rows)
+            last = rows[-1]
+            past = []
+            for r in rows[:-1]:
+                if r["t"] < since_ms:
+                    continue
+                ln = r["line"]
+                ks = sorted(set(list(range(1, len(ln) + 1, max(1, len(ln) // 8))) + [len(ln)]))
+                ok = r["res"]["dir"].get(r["model"]) if r.get("res") else None
+                if r.get("res") and r["model"] == "flat":
+                    ok = r["res"]["in50"]                            # 방향이 없으면 50% 범위 안에 들었는지로 맞음/틀림
+                past.append({"t": r["t"], "p0": r["p0"], "step": r["step"], "pts": [[k, ln[k - 1]] for k in ks], "hit": ok})
+            past = past[-80:]
+        far = []
+        if last["band"]:
+            lo, hi = last["band"][-1]
+            for k in range(1, (FAR - 1) * last["h"] + 1):
+                g = math.sqrt((last["h"] + k) / last["h"])
+                mid = last["line"][-1]
+                far.append([mid, mid - (mid - lo) * g, mid + (hi - mid) * g])
+        m = sc.get(last["model"], {})
+        return {"t": last["t"], "p0": last["p0"], "step": last["step"], "h": last["h"], "model": last["model"],
+                "label": CLABEL.get(last["model"], last["model"]), "line": last["line"] + [x[0] for x in far],
+                "band": last["band"] + [[x[1], x[2]] for x in far], "w": last["w"],
+                "acc": {"n": sc.get("_n", 0), "dir": m.get("dir"), "in50": sc.get("_in50"),
+                        "models": {c: {"err": round(v["err"], 3), "dir": v["dir"] and round(v["dir"]), "label": CLABEL.get(c, c)}
+                                   for c, v in sc.items() if not c.startswith("_")}},
+                "strength": max(0.0, min(1.0, ((m.get("dir") or 50) - 50) / 20)) if last["model"] != "flat" else 0.0,
+                "past": past}
+
+    def loop(self, stop: threading.Event, recent_fn=None, every: float = 30) -> None:
+        while not stop.is_set():
+            now = time.time()
+            for key, seen in list(self.seen.items()):
+                if key in ("SOXL|1m", "SOXS|1m", "SOXL|5m", "SOXS|5m") or now - seen < 900:
+                    sym, tf = key.split("|")
+                    try:
+                        b, _ = merge_recent(bars(sym, tf), recent_fn(sym) if recent_fn else [], tf)
+                        self.step(sym, tf, b)
+                    except Exception as e:
+                        log.info("예측 기록 실패 %s: %s", key, e)
+            stop.wait(every)
+
+
+REC: Recorder | None = None

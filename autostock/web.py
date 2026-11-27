@@ -58,7 +58,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .seg button.on{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
 .lg{margin-left:auto;font-size:12px;color:var(--mut);display:flex;align-items:center;gap:4px}.lg i{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;margin-left:6px}
 .lg i.b{border-bottom:9px solid var(--up)}.lg i.s{border-top:9px solid var(--dn)}
-.chartwrap{position:relative;touch-action:pan-y}#chart{min-height:230px}#chart svg{display:block}
+#chart,#bc{width:100%;height:360px;display:block;touch-action:none;cursor:grab}
 #tip{display:none;position:absolute;top:0;pointer-events:none;background:var(--acc);color:var(--bg);font-size:12px;padding:5px 8px;border-radius:8px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .sp{flex:1}.seg{flex-wrap:wrap}.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--mut);margin:2px 0 6px}
 .legend span{display:inline-flex;align-items:center;gap:5px}.legend i{display:inline-block}
@@ -73,7 +73,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .pbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:4px 0 2px;background:var(--track)}.pbar i{display:block}.pbar .u{background:var(--up)}.pbar .d{background:var(--dn)}
 .verdict{margin-top:14px;padding:12px;border-radius:10px;border:1.5px solid var(--line)}.verdict.vu{border-color:var(--up)}.verdict.vd{border-color:var(--dn)}.verdict b{display:block;font-size:16px;margin-bottom:2px}.verdict.vu b{color:var(--up)}.verdict.vd b{color:var(--dn)}
 table.plan{margin-top:10px}table.plan td,table.plan th{padding:7px 4px}
-#bc{width:100%;height:380px;display:block;touch-action:none;cursor:grab}.zone{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:13.5px;font-variant-numeric:tabular-nums}.zone.zb{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent)}.zone.zs{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.lgs,.lgr,.lgb{display:inline-block;width:14px;border-top:2px dashed;margin-right:5px;vertical-align:middle}.lgs{border-color:var(--warn)}.lgr{border-color:var(--ok)}.lgb{border-color:var(--warn);border-top-style:dotted}.brow{position:relative;display:flex;justify-content:space-between;padding:4px 8px;font-size:13.5px;font-variant-numeric:tabular-nums}.brow i{position:absolute;right:0;top:2px;bottom:2px;opacity:.15}.brow.ask span:first-child{color:var(--dn)}.brow.ask i{background:var(--dn)}.brow.bid span:first-child{color:var(--up)}.brow.bid i{background:var(--up)}.brow span{position:relative}.bhead{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);padding:0 8px 4px}.bmid{text-align:center;font-size:12px;color:var(--mut);padding:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.tgl{font:inherit;font-weight:700;padding:8px 18px;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:var(--bg);cursor:pointer}tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
+#bc{width:100%;height:380px;display:block;touch-action:none;cursor:grab}.zone{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:13.5px;font-variant-numeric:tabular-nums}.zone.zb{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent)}.zone.zs{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.lgs,.lgr,.lgb{display:inline-block;width:14px;border-top:2px dashed;margin-right:5px;vertical-align:middle}.lgs{border-color:var(--warn)}.lgr{border-color:var(--ok)}.lgb{border-color:var(--warn);border-top-style:dotted}.brow{position:relative;display:flex;justify-content:space-between;padding:4px 8px;font-size:13.5px;font-variant-numeric:tabular-nums}.brow i{position:absolute;right:0;top:2px;bottom:2px;opacity:.15}.brow.ask span:first-child{color:var(--dn)}.brow.ask i{background:var(--dn)}.brow.bid span:first-child{color:var(--up)}.brow.bid i{background:var(--up)}.brow span{position:relative}.bhead{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);padding:0 8px 4px}.bmid{text-align:center;font-size:12px;color:var(--mut);padding:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.tgl{font:inherit;font-weight:700;padding:8px 18px;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:var(--bg);cursor:pointer}tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}.zb{font:inherit;font-size:13px;padding:3px 10px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer}
 .tu{color:var(--up)}.td{color:var(--dn)}.mutt{color:var(--mut)}.warnt{color:var(--warn)}.pad{padding:0 4px}
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
 dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:12px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
@@ -92,6 +92,7 @@ footer{color:var(--mut);font-size:12px;margin:20px 2px}
 
 from .webchart import CHART_JS  # noqa: E402
 from .boardjs import BOARD_JS  # noqa: E402
+from .chartjs import CHART_CORE  # noqa: E402
 from . import board  # noqa: E402
 from . import webdata  # noqa: E402
 
@@ -333,7 +334,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                   f"<span><i class='lg-band bs'></i>{e(cfg.bear)} 매수 시도 구간</span>" if cfg.box else "")
 
                + ("<span><i class='lg-line stp'></i>손절</span><span><i class='lg-line tkp'></i>익절</span>" if o else "")
-               + f"</div><div class=chartwrap><div id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></div><div id=tip></div></div>"
+               + "<span><i class='lg-line' style='border-color:var(--vwap);border-top-width:3px'></i>예상선</span><span><i class='lg-line' style='border-color:var(--ok)'></i>지난 예측(맞음)</span><span><i class='lg-line' style='border-color:var(--warn)'></i>(틀림)</span>"
+               + f"<span class=sp></span><button data-czoom=out class=zb>－</button><button data-czoom=in class=zb>＋</button></div><canvas id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></canvas>"
                "<div id=cmsg class=note>불러오는 중…</div>"
                + (f"<div class=note>박스권 매수 시도: 1분봉이 빨간 구간에 닿고 양봉으로 끝나면(가운데선 아래) {e(cfg.bull)}, "
                   f"파란 구간에 닿고 음봉으로 끝나면(가운데선 위) {e(cfg.bear)} 를 삽니다. 구간이 안 보이면 오늘 박스권을 하지 않는 날입니다.</div>"
@@ -452,7 +454,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"{' · 애프터마켓 06:00~09:55' if 'post' in cfg.sessions else ''}"
                f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}"
                f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>"
-               f"<script>{CHART_JS}</script>")
+               f"<script>{CHART_CORE}</script><script>{CHART_JS}</script>")
     return "".join(out)
 
 
@@ -642,14 +644,14 @@ def render_board(cfg, token: str, now: datetime | None = None) -> str:
             f"<nav>{_nav(token, 'board', cfg.modes)}</nav>"
             f"<section class=card><div class=seg>{syms}</div><div class=seg>{tfs}<span class=sp></span>"
             "<button data-bzoom=out>－</button><button data-bzoom=in>＋</button></div>"
-            "<canvas id=bc></canvas><div id=bmsg class=note>불러오는 중…</div></section>"
+            "<canvas id=bc></canvas><div id=bmsg class=note>불러오는 중…</div><div id=bfc class=note></div></section>"
             "<h2>계획 (AI 추천)</h2><section class=card><div id=bplan></div>"
             "<button id=bask class=tgl style='margin-top:10px'>AI 계획 받기</button>"
             "<div class=note>누를 때만 Claude 를 부릅니다 (한 번에 몇 원). 지금 보고 있는 종목·봉 단위 기준입니다.</div></section>"
             "<footer>계획은 이 차트의 지지·저항대, 박스, 예상선(과거 방향 적중률), 지지·저항 근처 과거 반등률, 장기 추세(50·200일 평균, "
             "1년 고점 대비, 레버리지 감가)를 Claude 가 종합해, 'AI 계획 받기'를 누를 때 세웁니다. 참고용이며 수익을 보장하지 않습니다. "
             "봉은 야후 시세(시간외 포함)와 한국투자증권 최근 분봉입니다.</footer></main>"
-            f"<script>{BOARD_JS}</script>")
+            f"<script>{CHART_CORE}</script><script>{BOARD_JS}</script>")
 
 
 def render_ext(cfg, token: str, now: datetime | None = None) -> str:
@@ -680,12 +682,13 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
             + "</div><div class=legend><span><i class='lg-line rng'></i>박스</span>"
               f"<span><i class='lg-band bl'></i>{e(cfg.bull)} 매수 구간</span><span><i class='lg-band bs'></i>{e(cfg.bear)} 매수 구간</span>"
               "<span><i class='lg-line tkp'></i>매도 목표</span><span><i class='lg-line stp'></i>손절</span></div>"
-              f"<div class=chartwrap><div id=chart data-mode='ext' data-sym='{e(cfg.bull)}'></div><div id=tip></div></div>"
+              "<span class=sp></span><button data-czoom=out class=zb>－</button><button data-czoom=in class=zb>＋</button>"
+              f"</div><canvas id=chart data-mode='ext' data-sym='{e(cfg.bull)}'></canvas>"
               "<div id=cmsg class=note>불러오는 중…</div></section>"
               + EXT_RESEARCH +
               f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
-              f"<script>{EXT_JS}</script><script>{CHART_JS}</script>")
+              f"<script>{EXT_JS}</script><script>{CHART_CORE}</script><script>{CHART_JS}</script>")
 
 
 def _news_outcome(cfg, ts_iso: str):
@@ -977,6 +980,9 @@ def main() -> int:
     STORE = webdata.BarStore(os.path.join(config.load().data_dir, "bars_cache.json"))
     threading.Thread(target=webdata.collector, args=(STORE, threading.Event()), daemon=True).start()
     threading.Thread(target=webdata.account_refresher, args=(threading.Event(),), daemon=True).start()
+    board.REC = board.Recorder(config.load("paper").data_dir)
+    threading.Thread(target=board.REC.loop, args=(threading.Event(), lambda s_: webdata.board_recent(config.load("paper"), STORE, s_)),
+                     daemon=True).start()
     threading.Thread(target=board.warmer, args=(threading.Event(), lambda s_: webdata.board_recent(config.load("paper"), STORE, s_)),
                      daemon=True).start()
     pc = config.load("paper")

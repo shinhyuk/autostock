@@ -300,8 +300,8 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
             _kis_lock.release()
     sess = market_hours.last_session(now)
     sess_open = sess.open.timestamp() if sess else now.timestamp() - 6.5 * 3600
-    since = sess_open if span <= 0 else now.timestamp() - span * 60
-    allb = store.get(sym, min(since, sess_open))
+    since = now.timestamp() - 18 * 3600                # 드래그로 지난 시간도 보도록 넉넉히 (처음 보이는 범위는 화면이 span 으로 정함)
+    allb = store.get(sym, min(since, sess_open))[-1100:]
     pv = vv = 0.0
     vwap = {}
     for t, o, h, l, c, v in allb:
@@ -370,7 +370,7 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
             note = "시간외 박스 없음 — 위·아래 경계에 2번씩 닿는 옆걸음 구간이 생기면 그립니다" + (
                 f" (최근 박스는 {'위' if brk['dir'] == 'up' else '아래'}로 뚫림)" if brk else "")
     from . import board
-    fc = board.quick_forecast(sym, store.get(sym, now.timestamp() - 2 * 86400)) if bars else None
+    fc = board.REC.view(sym, "1m", bars[0][0]) if bars and board.REC else None
     return {"sym": sym, "bars": bars, "vwap": [vwap.get(b[0]) for b in bars], "marks": marks, "lines": lines,
             "range": rng, "range_t": rng_t, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note,
             "fc": fc}
@@ -439,8 +439,7 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
                 except Exception as e:
                     log.info("야후 1분봉 실패 %s: %s", s, e)
         note = "시세: 야후 (증권사 시간외 분봉이 비어 있음)"
-    since = t - span * 60 if span > 0 else (sess[1].timestamp() if sess else t - 8 * 3600)
-    bars = store.get(sym, since)
+    bars = store.get(sym, t - 18 * 3600)[-1100:]
     back = t - 6 * 3600                               # 박스는 최대 3시간짜리라 넉넉히
     adv = extbox.advice(store.get(bull, back), store.get(bear, back), now, ext_hist_path(cfg), x, cfg.fee_pct,
                         ext_day_path(cfg))
@@ -465,7 +464,7 @@ def ext_chart(cfg, sym: str, span: int, store: BarStore, x: float) -> dict:
         lv = adv["bull_lv" if rec == "bull" else "bear_lv"]
         lines += [{"v": r4(lv["target"]), "k": "take", "l": "매도 목표"}, {"v": r4(lv["stop"]), "k": "stop", "l": "손절"}]
     from . import board
-    fc = board.quick_forecast(sym, store.get(sym, t - 2 * 86400)) if bars else None
+    fc = board.REC.view(sym, "1m", bars[0][0]) if bars and board.REC else None
     return {"sym": sym, "bars": bars, "vwap": [None] * len(bars), "marks": [], "lines": lines, "range": rng, "fc": fc,
             "range_t": rng_t * 1000 if rng_t else None, "bands": bands, "last": bars[-1][4] if bars else None, "fx": cfg.usdkrw, "note": note, "advice": adv}
 
