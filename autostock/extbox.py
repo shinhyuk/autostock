@@ -73,6 +73,7 @@ BOX_TOL = 0.2                           # 경계에서 폭의 20% 안이면 '닿
 BOX_TOUCHES = 2                         # 위·아래 경계에 각각 이만큼 따로 닿아야 박스
 BOX_WMIN, BOX_WMAX = 0.6, 5.0           # 박스 폭(%) 범위
 BREAK_BARS, BREAK_M = 2, 0.1            # 종가가 경계 밖(폭의 10% 넘게)으로 2봉 연속이면 박스 끝
+SPAN_GAP = 12 * 3600                    # 시간대 사이 빈 시간(밤사이 등)이 이보다 짧으면 이전 시간대 시세로 만든 박스를 이어 쓴다
 
 
 def _groups(flags) -> int:
@@ -127,7 +128,7 @@ def live_box(bars: list[list]):
     if len(bars) < 2:
         return None, None
     rows = [[b[0] / 1000, *b[1:5]] for b in bars]
-    res, st = find_boxes(rows[:-1], 1)
+    res, st = find_boxes(rows[:-1], 1, gap=SPAN_GAP)    # 이전 시간대 시세도 이어서 → 시간대가 바뀌어도 바로 박스가 있다
     return st["box"], st["last_break"]
 
 

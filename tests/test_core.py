@@ -1510,3 +1510,23 @@ def test_live_ext_trading_toggle(tmp_path, monkeypatch, rig):
         assert err.code == 303
     srv.shutdown()
     assert config.read_overrides(str(tmp_path))["live"]["ext_trading"] is True
+
+
+def test_extbox_trades_right_away_using_previous_session(tmp_path, monkeypatch):
+    from autostock import extbox, market_hours
+    monkeypatch.setattr(market_hours, "ENABLED", ("regular", "pre", "post", "day"))
+    now0 = datetime(2026, 1, 6, 4, 5, 30, tzinfo=ET)                                        # 프리마켓 시작 5분 뒤
+    prev = _osc(datetime(2026, 1, 5, 18, 50, tzinfo=ET), 70, 100, 1)                        # 전날 애프터 옆걸음 (야후)
+    monkeypatch.setattr(extbox, "yahoo_1m", lambda s: prev if s == "SOXL" else [])
+
+    class M:
+        def __init__(self): self.now, self.px = now0, {"SOXL": 99.2, "SOXS": 20.0}
+        def bars(self, s, n=120):                                                            # 증권사는 오늘 프리 4개뿐
+            return [Bar(now0.replace(minute=1 + i, second=0), 100, 100.2, 99.8, 100 if i < 3 else 99.2, 1) for i in range(4)] if s == "SOXL" else []
+        def quote(self, s): return Quote(s, self.px[s], self.px[s])
+    m = M()
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", ext_strategy="box",
+                              sessions=("regular", "pre", "post", "day"), max_stop_loss_pct=6)
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    assert e.st.open and e.st.open.symbol == "SOXL" and e.st.open.kind == "extbox"          # 기다리지 않고 바로

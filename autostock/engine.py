@@ -767,17 +767,20 @@ class Engine:
         stale = extbox.STALE_MIN.get(sess.name if sess else "", 5)
 
         def box_of(sym):
-            bars = [b for b in self.market.bars(sym, 120) if b.ts < minute]
-            if (not bars or (now - bars[-1].ts).total_seconds() > stale * 60) and c.mode == "paper" \
-                    and sess and sess.name in ("pre", "post"):
-                try:                                  # 가상매매: 증권사 분봉에 프리·애프터가 없으면 야후 1분봉으로
-                    bars = [b for b in extbox.yahoo_1m(sym) if b.ts < minute][-180:]
+            """한국투자증권 최근 1분봉 + (부족하면) 야후 2일치 1분봉으로, 이전 시간대 시세까지 이어서 박스를 찾는다.
+            그래서 장외 거래를 켜거나 시간대가 바뀌어도 박스를 새로 만들 때까지 기다리지 않는다."""
+            kis = [b for b in self.market.bars(sym, 120) if b.ts < minute]
+            bars = kis
+            if sess and sess.name in ("pre", "post", "day"):    # 야후에는 주간거래가 없지만 바로 앞 애프터 시세가 있다
+                try:
+                    old = [b for b in extbox.yahoo_1m(sym) if b.ts < (kis[0].ts if kis else minute)]
+                    bars = old[-240:] + kis
                 except Exception as e:
                     log.info("야후 1분봉 실패 %s: %s", sym, e)
             if not bars or (now - bars[-1].ts).total_seconds() > stale * 60:
                 return None, None
             rows = [[b.ts.timestamp(), b.open, b.high, b.low, b.close] for b in bars]
-            return extbox.find_boxes(rows, 1)[1]["box"], bars[-1].close
+            return extbox.find_boxes(rows, 1, gap=extbox.SPAN_GAP)[1]["box"], bars[-1].close
         bx, last = box_of(c.bull)
         if not bx:
             self.orb_status = "시간외 박스 없음 (경계에 2번씩 닿는 옆걸음 구간을 찾는 중)" if last else "시간외 시세 없음/지연"
