@@ -482,8 +482,14 @@ def _rule_plan0(d: dict) -> dict:
             "reasons": ["지지대·저항대 어느 쪽에도 가깝지 않음"], "long_view": "", "src": "규칙"}
 
 
-def plan(sym: str, tf: str, d: dict, model: str = "claude-haiku-5-5", ttl: float = 600) -> dict:
-    """10분 캐시. Claude 호출은 종목·봉 단위마다 10분에 한 번."""
+def cached_plan(sym: str, tf: str) -> dict | None:
+    """이미 받은 계획 (Claude 를 부르지 않음)."""
+    hit = _plan_cache.get((sym, tf))
+    return hit[1] if hit else None
+
+
+def plan(sym: str, tf: str, d: dict, model: str = "claude-haiku-5-5", ttl: float = 60) -> dict:
+    """사용자가 버튼을 눌렀을 때만 부른다. 같은 종목·봉 단위를 1분 안에 다시 누르면 앞 결과를 돌려준다."""
     key = (sym, tf)
     hit = _plan_cache.get(key)
     if hit and time.time() - hit[0] < ttl:

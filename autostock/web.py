@@ -642,9 +642,11 @@ def render_board(cfg, token: str, now: datetime | None = None) -> str:
             f"<section class=card><div class=seg>{syms}</div><div class=seg>{tfs}<span class=sp></span>"
             "<button data-bzoom=out>－</button><button data-bzoom=in>＋</button></div>"
             "<canvas id=bc></canvas><div id=bmsg class=note>불러오는 중…</div></section>"
-            "<h2>계획 (AI 추천)</h2><section class=card id=bplan><div class=note>계획을 세우는 중… (처음엔 10초쯤)</div></section>"
+            "<h2>계획 (AI 추천)</h2><section class=card><div id=bplan></div>"
+            "<button id=bask class=tgl style='margin-top:10px'>AI 계획 받기</button>"
+            "<div class=note>누를 때만 Claude 를 부릅니다 (한 번에 몇 원). 지금 보고 있는 종목·봉 단위 기준입니다.</div></section>"
             "<footer>계획은 이 차트의 지지·저항대, 박스, 예상선(과거 방향 적중률), 지지·저항 근처 과거 반등률, 장기 추세(50·200일 평균, "
-            "1년 고점 대비, 레버리지 감가)를 Claude 가 종합해 10분마다 새로 세웁니다. 참고용이며 수익을 보장하지 않습니다. "
+            "1년 고점 대비, 레버리지 감가)를 Claude 가 종합해, 'AI 계획 받기'를 누를 때 세웁니다. 참고용이며 수익을 보장하지 않습니다. "
             "봉은 야후 시세(시간외 포함)와 한국투자증권 최근 분봉입니다.</footer></main>"
             f"<script>{BOARD_JS}</script>")
 
@@ -870,6 +872,11 @@ def make_handler(token: str):
                     elif q.get("what", [""])[0] == "plan":
                         tf = q.get("tf", ["5m"])[0]
                         tf = tf if tf in board.TF else "5m"
+                        if q.get("ask", [""])[0] != "1":           # 버튼을 누르기 전에는 Claude 를 부르지 않는다
+                            data = board.cached_plan(sym, tf) or {"none": True}
+                            body, ctype = json.dumps(data).encode(), "application/json"
+                            self._send(body, ctype)
+                            return
                         try:
                             extra = webdata.board_recent(cfg, STORE, sym) if STORE is not None else []
                             data = board.plan(sym, tf, board.analyze(sym, tf, extra), cfg.model)
@@ -914,6 +921,9 @@ def make_handler(token: str):
             else:
                 body = render(cfg, mode, token).encode()
                 ctype = "text/html; charset=utf-8"
+            self._send(body, ctype)
+
+        def _send(self, body: bytes, ctype: str) -> None:
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))

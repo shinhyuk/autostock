@@ -16,13 +16,18 @@ async function load(reset){const msg=document.getElementById('bmsg');try{const r
   else{const t=old.bars[Math.max(0,Math.min(end,oldL)-1)][0];let i=D.bars.findIndex(b=>b[0]>t);end=i<0?L:i}
   const lt=D.bars[L-1][0];msg.textContent=`${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} · 봉 ${L}개 · 마지막 ${new Date(lt).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'})}${D.kis_bars?' (최근 '+D.kis_bars+'개는 한국투자증권 시세)':''} · 드래그=시간 이동 · 휠/두 손가락=확대축소 · 두 번 누르면 최신으로`;
   draw()}catch(e){msg.textContent='연결 실패'}}
-async function plan(){const el=document.getElementById('bplan');const s0=sym,t0=tf;try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=board&what=plan&sym=${sym}&tf=${tf}`);const p=await r.json();if(s0!=sym||t0!=tf)return;PLAN=p;
+async function plan(ask){const el=document.getElementById('bplan'),btn=document.getElementById('bask');const s0=sym,t0=tf;
+ if(ask){btn.disabled=true;btn.textContent='계획 세우는 중… (10초쯤)'}
+ try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=board&what=plan&sym=${sym}&tf=${tf}${ask?'&ask=1':''}`);const p=await r.json();if(s0!=sym||t0!=tf)return;
+ btn.disabled=false;btn.textContent='AI 계획 받기';
+ if(p.none){PLAN=null;el.innerHTML=`<div class=note>${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} 계획이 아직 없습니다.</div>`;draw();return}
+ PLAN=p;
  if(p.error){el.innerHTML=`<div class=note>계획을 세우지 못했습니다: ${p.error}</div>`;draw();return}
  const name={BUY:sym+' 매수',AVOID:sym+' 사지 않기 (하락 쪽'+(sym=='SOXL'?' · SOXS 고려':sym=='SOXS'?' · SOXL 고려':'')+')',WAIT:'관망 (기다리기)'}[p.action];
  const cls=p.action=='BUY'?'up':p.action=='AVOID'?'dn':'mut',mid=(p.entry_lo+p.entry_hi)/2,rr=Math.abs(p.target-mid)/Math.max(Math.abs(mid-p.stop),1e-9);
  el.innerHTML=`<div class='big2 ${cls}'>${name}</div><div class=sub>확신도 ${Math.round(p.confidence*100)}% · 보유 ${p.horizon} · ${p.src}${p.at?' · '+new Date(p.at*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'})+' 기준':''}</div>`+
   `<dl class=kv><dt>${p.action=='BUY'?'진입':'기다릴 가격대'}</dt><dd>${usd(p.entry_lo)} ~ ${usd(p.entry_hi)}</dd><dt>목표</dt><dd class=up>${usd(p.target)}</dd><dt>손절</dt><dd class=dn>${usd(p.stop)}</dd><dt>손익비</dt><dd>${rr.toFixed(1)} : 1</dd></dl>`+
-  `<div class=note>${(p.reasons||[]).map(x=>'· '+x).join('<br>')}</div>`+(p.long_view?`<div class=note><b>장기</b>: ${p.long_view}</div>`:'')+(p.note?`<div class='note warnt'>${p.note}</div>`:'');draw()}catch(e){el.innerHTML='<div class=note>계획 연결 실패</div>'}}
+  `<div class=note>${(p.reasons||[]).map(x=>'· '+x).join('<br>')}</div>`+(p.long_view?`<div class=note><b>장기</b>: ${p.long_view}</div>`:'')+(p.note?`<div class='note warnt'>${p.note}</div>`:'');draw()}catch(e){btn.disabled=false;btn.textContent='AI 계획 받기';el.innerHTML='<div class=note>계획 연결 실패</div>'}}
 function draw(){if(!D||!D.bars||!D.bars.length)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
  const B=D.bars,L=B.length,FL=(D.fc&&D.fc.line)?D.fc.line.length:0;n=Math.max(15,Math.min(n,L+FL));
  end=Math.max(n,Math.min(end,L+FL,L+n-5));follow=end>=L;const s=B.slice(Math.max(0,end-n),Math.min(end,L));
@@ -73,7 +78,8 @@ cv.addEventListener('pointerleave',()=>{hov=null;draw()});
 cv.addEventListener('wheel',e=>{e.preventDefault();if(!D)return;const r=cv.getBoundingClientRect(),bw=(cv.clientWidth-58)/n,fx=Math.min(Math.max((e.clientX-r.left)/(cv.clientWidth-58),0),1);
  const at=end-n+fx*n,nn=Math.round(n*(e.deltaY>0?1.15:1/1.15));n=Math.max(15,Math.min(nn,D.bars.length));end=Math.round(at+(1-fx)*n);draw()},{passive:false});
 document.querySelectorAll('[data-bzoom]').forEach(b=>b.addEventListener('click',()=>{n=Math.round(n*(b.dataset.bzoom=='in'?0.7:1.4));draw()}));
-document.querySelectorAll('[data-bsym]').forEach(b=>b.addEventListener('click',()=>{sym=b.dataset.bsym;try{localStorage.setItem('bsym',sym)}catch(e){}mark();PLAN=null;load(true);plan()}));
-document.querySelectorAll('[data-btf]').forEach(b=>b.addEventListener('click',()=>{tf=b.dataset.btf;try{localStorage.setItem('btf',tf)}catch(e){}mark();PLAN=null;load(true);plan()}));
-addEventListener('resize',draw);mark();load(true);plan();setInterval(()=>load(false),10000);setInterval(plan,120000)})();
+document.querySelectorAll('[data-bsym]').forEach(b=>b.addEventListener('click',()=>{sym=b.dataset.bsym;try{localStorage.setItem('bsym',sym)}catch(e){}mark();PLAN=null;load(true);plan(false)}));
+document.querySelectorAll('[data-btf]').forEach(b=>b.addEventListener('click',()=>{tf=b.dataset.btf;try{localStorage.setItem('btf',tf)}catch(e){}mark();PLAN=null;load(true);plan(false)}));
+document.getElementById('bask').addEventListener('click',()=>plan(true));
+addEventListener('resize',draw);mark();load(true);plan(false);setInterval(()=>load(false),10000)})();
 """

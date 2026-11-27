@@ -1589,4 +1589,5 @@ def test_chart_plan_uses_claude_or_falls_back_to_rules(monkeypatch):
     board._plan_cache.clear()
     p = board.plan("SOXL", "5m", d)
     assert p["action"] == "WAIT" and p["src"] == "Claude"
-    assert board.plan("SOXL", "5m", d) is p                                                 # 10분 캐시
+    assert board.plan("SOXL", "5m", d) is p and board.cached_plan("SOXL", "5m") is p        # 1분 안에 다시 누르면 앞 결과
+    assert board.cached_plan("SOXL", "1h") is None
