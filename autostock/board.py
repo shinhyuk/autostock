@@ -594,7 +594,7 @@ class Recorder:
         os.makedirs(self.dir, exist_ok=True)
         self.recs: dict = {}            # key → [record, ...]
         self.state: dict = {}           # key → {"w": 범위 폭 배율}
-        self.seen: dict = {"SOXL|1m": 0.0, "SOXS|1m": 0.0, "SOXL|5m": 0.0, "SOXS|5m": 0.0}
+        self.seen: dict = {f"{s_}|{t_}": 0.0 for s_ in ("SOXL", "SOXS") for t_ in PATH_TFS}
         self.lock = threading.Lock()
 
     # 저장소
@@ -704,6 +704,32 @@ class Recorder:
             if changed:
                 self._save(key)
 
+    def path(self, sym: str) -> list[list]:
+        """종목 하나의 예측 경로 [[시각ms, 예상가, 50%아래, 50%위], ...]: 1분봉 예측(가까운 미래)에 5분봉·1시간봉·일봉 예측을
+        차례로 끊기지 않게 이어 붙인다. 모든 차트가 같은 경로를 자기 봉 단위로 그린다."""
+        out: list[list] = []
+        for tf in PATH_TFS:
+            rows = self._load(f"{sym}|{tf}")
+            if not rows:
+                continue
+            r = rows[-1]
+            pts = [[r["t"], r["p0"], r["p0"], r["p0"]]] + [[r["t"] + (k + 1) * r["step"], v, *r["band"][k]] for k, v in enumerate(r["line"])]
+            if not out:
+                out = pts
+                continue
+            t_end, v_end = out[-1][0], out[-1][1]
+            later = [p for p in pts if p[0] > t_end]
+            if not later:
+                continue
+            # 이 단위 예측의 t_end 시점 값(앞뒤 점 사이 직선 보간)을 이어 붙일 끝값에 맞춘다
+            prev = max((p for p in pts if p[0] <= t_end), key=lambda p: p[0], default=pts[0])
+            nxt = later[0]
+            f = (t_end - prev[0]) / (nxt[0] - prev[0]) if nxt[0] > prev[0] else 0
+            here = prev[1] + (nxt[1] - prev[1]) * f
+            k = v_end / here if here else 1.0
+            out += [[t, v * k, lo * k, hi * k] for t, v, lo, hi in later]
+        return [[int(t), round(v, 4), round(lo, 4), round(hi, 4)] for t, v, lo, hi in out]
+
     def view(self, sym: str, tf: str, since_ms: float = 0) -> dict | None:
         """화면용: 가장 최근 예측(시각 포함, 기본의 FAR 배까지 평평하게 이어 붙임) + 지난 예측들과 채점."""
         key = f"{sym}|{tf}"
@@ -733,7 +759,9 @@ class Recorder:
                 mid = last["line"][-1]
                 far.append([mid, mid - (mid - lo) * g, mid + (hi - mid) * g])
         m = sc.get(last["model"], {})
-        return {"t": last["t"], "p0": last["p0"], "step": last["step"], "h": last["h"], "model": last["model"],
+        with self.lock:
+            pts = self.path(sym)
+        return {"pts": pts, "t": last["t"], "p0": last["p0"], "step": last["step"], "h": last["h"], "model": last["model"],
                 "label": CLABEL.get(last["model"], last["model"]), "line": last["line"] + [x[0] for x in far],
                 "band": last["band"] + [[x[1], x[2]] for x in far], "w": last["w"],
                 "acc": {"n": sc.get("_n", 0), "dir": m.get("dir"), "in50": sc.get("_in50"),
@@ -746,7 +774,7 @@ class Recorder:
         while not stop.is_set():
             now = time.time()
             for key, seen in list(self.seen.items()):
-                if key in ("SOXL|1m", "SOXS|1m", "SOXL|5m", "SOXS|5m") or now - seen < 900:
+                if key.split("|")[0] in ("SOXL", "SOXS") and key.split("|")[1] in PATH_TFS or now - seen < 900:
                     sym, tf = key.split("|")
                     try:
                         b, _ = merge_recent(bars(sym, tf), recent_fn(sym) if recent_fn else [], tf)
@@ -757,3 +785,4 @@ class Recorder:
 
 
 REC: Recorder | None = None
+PATH_TFS = ("1m", "5m", "1h", "1d")      # 종목 하나의 예측 경로를 이 순서로 이어 붙인다 (가까운 미래 → 먼 미래)

@@ -1612,3 +1612,24 @@ def test_forecast_recorder_records_scores_and_adapts(tmp_path):
     assert all(isinstance(p["hit"], (bool, type(None))) for p in v["past"])
     r2 = board.Recorder(str(tmp_path))                                                      # 파일에 저장돼 다시 읽힘
     assert r2.view("SOXL", "1m")["t"] == v["t"]
+
+
+def test_every_timeframe_shows_the_same_stitched_forecast(tmp_path):
+    import math, random
+    from autostock import board
+    random.seed(5)
+    m1, p = [], 100.0
+    for i in range(3000):
+        p *= math.exp(0.0003 + random.gauss(0, 0.002))
+        m1.append([i * 60_000, p, p * 1.001, p * 0.999, p, 1])
+    m5 = [[m1[i][0], m1[i][1], max(x[2] for x in m1[i:i + 5]), min(x[3] for x in m1[i:i + 5]), m1[i + 4][4], 5]
+          for i in range(0, 3000, 5)]
+    r = board.Recorder(str(tmp_path))
+    r.step("SOXL", "1m", m1)
+    r.step("SOXL", "5m", m5)
+    a, b = r.view("SOXL", "1m"), r.view("SOXL", "5m")
+    assert a["pts"] == b["pts"] and len(a["pts"]) > 31                                       # 1분·5분 차트가 같은 경로
+    ts = [x[0] for x in a["pts"]]
+    assert ts == sorted(ts) and len(set(ts)) == len(ts)
+    j = 31                                                                                  # 1분봉 30개 뒤부터 5분봉 예측
+    assert abs(a["pts"][j][1] / a["pts"][j - 1][1] - 1) < 0.01                               # 이음매에서 끊기지 않음

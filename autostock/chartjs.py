@@ -7,7 +7,7 @@ const usd=v=>v==null?'-':'$'+(Math.abs(v)>=1000?v.toFixed(0):v.toFixed(2));
 const fmt=(t,withDay)=>new Date(t).toLocaleString('ko-KR',Object.assign({hour12:false,timeZone:'Asia/Seoul'},withDay?{month:'2-digit',day:'2-digit'}:{hour:'2-digit',minute:'2-digit'}));
 const LC=()=>({entry:css('--mut'),stop:css('--dn'),take:css('--up'),trail:css('--warn'),rng:css('--warn'),box:css('--mut'),bxl:css('--up'),bxs:css('--dn'),noise:css('--noise'),plan:css('--ok'),wait:css('--mut')});
 function stepMs(){const b=D.bars;if(b.length<3)return 60000;const d=[];for(let i=Math.max(1,b.length-50);i<b.length;i++)d.push(b[i][0]-b[i-1][0]);d.sort((x,y)=>x-y);return d[d.length>>1]||60000}
-function futLen(){return D&&D.fc&&D.fc.line?D.fc.line.length:0}
+function futLen(){if(!D||!D.fc)return 0;const f=D.fc;if(f.pts&&f.pts.length&&D.bars.length>2){const L=D.bars.length;return Math.min(1500,Math.max(0,Math.ceil((f.pts[f.pts.length-1][0]-D.bars[L-1][0])/stepMs())))}return f.line?f.line.length:0}
 function set(nd,reset,initN){const old=D,oldL=old?old.bars.length:0,wasFollow=!old||end>=oldL;D=nd;const L=D.bars.length;FD=D.fc?Math.min(D.fc.h||0,futLen()):0;
  if(reset||!old){n=Math.min(initN||opt.initN||90,L)+FD;end=L+FD}
  else if(wasFollow){end=L+Math.max(0,end-oldL)}
@@ -22,7 +22,9 @@ function draw(){if(!D||!D.bars||D.bars.length<2){ctx.clearRect(0,0,cv.width,cv.h
  const colOf=t=>{if(t>lastT)return L-1+(t-lastT)/SM;let a=0,z=L-1;while(a<z){const m=(a+z+1)>>1;if(B[m][0]<=t)a=m;else z=m-1}return a};
  const vis=[];for(let c=Math.max(0,c0);c<Math.min(end,L);c++)vis.push(c);
  const fc=D.fc,fT=c=>fc.t+c*fc.step;
- const fpts=fc?fc.line.map((v,k)=>[colOf(fT(k+1)),v,fc.band[k]]).filter(p=>p[0]>=c0-1&&p[0]<=end):[];
+ const fall=fc?(fc.pts&&fc.pts.length?fc.pts.slice(1).map(([t,v,a,b])=>[colOf(t),v,[a,b]]):fc.line.map((v,k)=>[colOf(fT(k+1)),v,fc.band[k]])):[];
+ const fs=fc&&fc.pts&&fc.pts.length?[colOf(fc.pts[0][0]),fc.pts[0][1]]:fc?[colOf(fc.t),fc.p0]:null;
+ const fpts=fall.filter(p=>p[0]>=c0-1&&p[0]<=end+1);
  const rngV=[];for(const c of vis){rngV.push(B[c][2],B[c][3])}for(const p of fpts){rngV.push(p[1],p[2][0],p[2][1])}
  const plan=D.plan;if(plan)rngV.push(...[plan.target,plan.stop,plan.entry_lo,plan.entry_hi].filter(v=>v!=null));
  let lo=Math.min(...rngV),hi=Math.max(...rngV);const pad=(hi-lo)*.07||lo*.01;lo-=pad;hi+=pad;const Y=v=>6+(hi-v)/(hi-lo)*(ph-6);
@@ -44,9 +46,9 @@ function draw(){if(!D||!D.bars||D.bars.length<2){ctx.clearRect(0,0,cv.width,cv.h
   const x0=colOf(p.t);if(x0>end||xs[xs.length-1][0]<c0)continue;ctx.strokeStyle=p.hit==null?mut:p.hit?ok:warn;ctx.globalAlpha=.5;ctx.lineWidth=1.2;
   ctx.beginPath();ctx.moveTo(X(x0),Y(p.p0));for(const [c,v] of xs)ctx.lineTo(X(c),Y(v));ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=1}
  // 예상선: 세기만큼 진하게
- if(fpts.length){const st=fc.strength||0,x0=colOf(fc.t);ctx.fillStyle=vw;ctx.globalAlpha=.06+.1*st;ctx.beginPath();ctx.moveTo(X(x0),Y(fc.p0));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[2][1])));
+ if(fpts.length){const st=fc.strength||0,x0=fs[0];ctx.fillStyle=vw;ctx.globalAlpha=.06+.1*st;ctx.beginPath();ctx.moveTo(X(x0),Y(fs[1]));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[2][1])));
   for(let k=fpts.length-1;k>=0;k--)ctx.lineTo(X(fpts[k][0]),Y(fpts[k][2][0]));ctx.closePath();ctx.fill();ctx.globalAlpha=.35+.65*st;ctx.strokeStyle=vw;ctx.lineWidth=1.4+2.6*st;if(!st)ctx.setLineDash([5,3]);
-  ctx.beginPath();ctx.moveTo(X(x0),Y(fc.p0));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[1])));ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1;ctx.globalAlpha=1;
+  ctx.beginPath();ctx.moveTo(X(x0),Y(fs[1]));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[1])));ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1;ctx.globalAlpha=1;
   const nowX=X(L-1)+bw/2;if(nowX<pw){ctx.strokeStyle=line;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(nowX,0);ctx.lineTo(nowX,H-pb);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=vw;ctx.font='bold 11px system-ui';
    ctx.fillText((fc.model=='flat'?'예상: 방향 없음':'예상')+(fc.acc&&fc.acc.dir!=null&&fc.model!='flat'?' · 적중 '+Math.round(fc.acc.dir)+'%':''),nowX+4,14);ctx.font='11px system-ui'}}
  // 가로선 (이름은 왼쪽, 가격표는 오른쪽 · 겹치면 비켜 그림)
@@ -62,7 +64,7 @@ function draw(){if(!D||!D.bars||D.bars.length<2){ctx.clearRect(0,0,cv.width,cv.h
  ctx.fillStyle=mut;const span=tOf(end-1)-tOf(c0),day=span>36*3600e3;for(let k=0;k<5;k++){const c=Math.round(c0+(n-1)*k/4),t=tOf(c),txt=day?fmt(t,1):fmt(t);const tw=ctx.measureText(txt).width;ctx.fillStyle=c>=L?vw:mut;ctx.fillText(txt,Math.min(Math.max(X(c)-tw/2,0),pw-tw),H-6)}
  // 십자선과 설명
  const hc=hov!=null?Math.floor(hov/bw)+c0:tapI;if(hc!=null&&hc>=c0&&hc<end){const x=X(hc);ctx.strokeStyle=mut;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H-pb);ctx.stroke();ctx.setLineDash([]);
-  let txt;if(hc<L){const b=B[hc];txt=`${fmt(b[0],1)} ${fmt(b[0])} 시${usd(b[1])} 고${usd(b[2])} 저${usd(b[3])} 종${usd(b[4])}`}else{const k=fpts.find(p=>Math.round(p[0])==hc);txt=`${fmt(tOf(hc),1)} ${fmt(tOf(hc))} 예상 ${k?usd(k[1])+' (50% '+usd(k[2][0])+'~'+usd(k[2][1])+')':'-'}`}
+  let txt;if(hc<L){const b=B[hc];txt=`${fmt(b[0],1)} ${fmt(b[0])} 시${usd(b[1])} 고${usd(b[2])} 저${usd(b[3])} 종${usd(b[4])}`}else{const k=fpts.reduce((a,p)=>!a||Math.abs(p[0]-hc)<Math.abs(a[0]-hc)?p:a,null);txt=`${fmt(tOf(hc),1)} ${fmt(tOf(hc))} 예상 ${k?usd(k[1])+' (50% '+usd(k[2][0])+'~'+usd(k[2][1])+')':'-'}`}
   ctx.font='11px system-ui';const tw=ctx.measureText(txt).width+10,tx=Math.min(Math.max(x-tw/2,0),pw-tw);ctx.fillStyle=fg;ctx.fillRect(tx,0,tw,18);ctx.fillStyle=card;ctx.fillText(txt,tx+5,13)}
  if(opt.onDraw)opt.onDraw({first:tOf(Math.max(c0,0)),last:tOf(end-1),n,L,FL})}
 // 조작
