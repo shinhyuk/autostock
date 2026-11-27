@@ -128,8 +128,28 @@ def _near(lv: list[dict], price: float, k: int = 3) -> list[dict]:
     return below + above
 
 
-def analyze(sym: str, tf: str) -> dict:
+def merge_recent(b: list[list], extra: list[list], tf: str) -> tuple[list[list], int]:
+    """야후 봉 뒤에 증권사 1분봉(extra, 야후에 아직 없는 최근 것)을 그 시간 단위로 묶어 이어 붙인다."""
+    if not extra or tf == "1d":
+        return b, 0
+    step = TF[tf][2] * 60_000
+    last = b[-1][0] if b else 0
+    agg: dict[int, list] = {}
+    for t, o, h, l, c, v in sorted(extra):
+        k = t - t % step
+        if k <= last:
+            continue
+        if k not in agg:
+            agg[k] = [k, o, h, l, c, v or 0]
+        else:
+            a = agg[k]
+            a[2], a[3], a[4], a[5] = max(a[2], h), min(a[3], l), c, a[5] + (v or 0)
+    return b + [agg[k] for k in sorted(agg)], len(agg)
+
+
+def analyze(sym: str, tf: str, extra: list[list] | None = None) -> dict:
     b = bars(sym, tf)
+    b, added = merge_recent(b, extra or [], tf)
     if len(b) < 30:
         return {"sym": sym, "tf": tf, "bars": b, "error": "봉이 부족합니다"}
     step = TF[tf][2]
@@ -155,7 +175,7 @@ def analyze(sym: str, tf: str) -> dict:
     return {"sym": sym, "tf": tf, "bars": b, "last": last, "atr": a,
             "levels": _near(lv, last), "sup": sup, "res": res,
             "box": {"hi": bx["hi"], "lo": bx["lo"], "start": bx["start"] * 1000} if bx else None,
-            "zones": zones, "stats": st}
+            "zones": zones, "stats": st, "kis_bars": added}
 
 
 def _ma(xs: list[float], n: int) -> float | None:

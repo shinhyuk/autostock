@@ -14,7 +14,7 @@ async function load(reset){const msg=document.getElementById('bmsg');try{const r
   if(reset||!old){end=L;n=Math.min(90,L);follow=true}
   else if(follow){end=L}
   else{const t=old.bars[Math.max(0,end-1)][0];let i=D.bars.findIndex(b=>b[0]>t);end=i<0?L:i}
-  msg.textContent=`${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} · 봉 ${L}개 · 드래그=시간 이동 · 휠/두 손가락=확대축소 · 두 번 누르면 최신으로`;
+  const lt=D.bars[L-1][0];msg.textContent=`${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} · 봉 ${L}개 · 마지막 ${new Date(lt).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'})}${D.kis_bars?' (최근 '+D.kis_bars+'개는 한국투자증권 시세)':''} · 드래그=시간 이동 · 휠/두 손가락=확대축소 · 두 번 누르면 최신으로`;
   info();draw()}catch(e){msg.textContent='연결 실패'}}
 function info(){const el=document.getElementById('binfo');if(!D||!D.last){el.innerHTML='';return}
  const st=D.stats||{},p=(a)=>a&&a[0]+a[1]?Math.round(a[0]/(a[0]+a[1])*100)+'% ('+(a[0]+a[1])+'번)':'자료 부족';

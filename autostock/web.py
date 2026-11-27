@@ -856,7 +856,8 @@ def make_handler(token: str):
                     else:
                         tf = q.get("tf", ["5m"])[0]
                         try:
-                            data = board.analyze(sym, tf if tf in board.TF else "5m")
+                            extra = webdata.board_recent(cfg, STORE, sym) if STORE is not None else []
+                            data = board.analyze(sym, tf if tf in board.TF else "5m", extra)
                         except Exception as ex:
                             data = {"error": f"{type(ex).__name__}: {ex}"[:160], "bars": []}
                     body, ctype = json.dumps(data).encode(), "application/json"

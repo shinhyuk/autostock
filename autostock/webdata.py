@@ -467,3 +467,18 @@ def board_book(cfg, sym: str) -> dict:
         return {"error": f"{type(e).__name__}: {e}"[:160]}
     finally:
         _kis_lock.release()
+
+
+def board_recent(cfg, store: BarStore, sym: str) -> list[list]:
+    """차트 탭용 최근 1분봉: 모아 둔 봉 + 지금 한국투자증권에서 받은 봉 (프리·애프터·주간거래 포함)."""
+    now = market_hours.now_et()
+    _enable_day(extbox.session(now))
+    mk = market(cfg)
+    if mk and _kis_lock.acquire(timeout=2):
+        try:
+            store.merge(sym, mk.bars(sym, 120))
+        except Exception as e:
+            log.info("차트 탭 1분봉 조회 실패 %s: %s", sym, e)
+        finally:
+            _kis_lock.release()
+    return store.get(sym, now.timestamp() - 2 * 86400)

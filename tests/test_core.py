@@ -1460,3 +1460,12 @@ def test_chart_tab_long_term_view(monkeypatch):
     assert set(lt["fwd"]) == {21, 63, 126} and lt["episodes"]
     lv = board.levels(d[-200:])
     assert all(x["lo"] <= x["v"] <= x["hi"] for x in lv)                                     # 선이 아니라 가격대
+
+
+def test_chart_tab_appends_recent_kis_bars():
+    from autostock import board
+    t0 = 1_700_000_000_000
+    y = [[t0 + i * 300_000, 10, 10, 10, 10, 1] for i in range(5)]                          # 야후 5분봉
+    extra = [[t0 + 5 * 300_000 + j * 60_000, 11, 11 + j * 0.1, 10.9, 11 + j * 0.1, 2] for j in range(7)]   # 그 뒤 증권사 1분봉 7개
+    b, n = board.merge_recent(y, extra + [[t0, 1, 1, 1, 1, 1]], "5m")
+    assert n == 2 and len(b) == 7 and b[5][2] == 11.4 and b[5][5] == 10 and b[6][4] == 11.6
