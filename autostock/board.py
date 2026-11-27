@@ -88,6 +88,19 @@ def nearest(lv: list[dict], price: float, min_n: int = 2):
             min(above, key=lambda x: x["v"]) if above else None)
 
 
+_bounce_cache: dict = {}
+
+
+def bounce_stats_cached(key, b: list[list], ttl: float = 300) -> dict:
+    """반등률은 천천히 변하므로 5분 동안 재사용 (페이지를 빨리 열기 위해)."""
+    hit = _bounce_cache.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    r = bounce_stats(b)
+    _bounce_cache[key] = (time.time(), r)
+    return r
+
+
 def bounce_stats(b: list[list], k: int = 3, step: int = 20) -> dict:
     """과거에 그때까지 알려진 지지선(저항선) 근처(0.3 ATR 안)에 왔을 때, 위로(아래로) 1 ATR 먼저 갔는지.
     계산을 가볍게 하려고 step 봉마다 선을 다시 계산한다."""
@@ -160,7 +173,7 @@ def analyze(sym: str, tf: str, extra: list[list] | None = None) -> dict:
     rows = [[x[0] / 1000, *x[1:5]] for x in b[-400:]]
     bx = extbox.find_boxes(rows, step, nmin=9, nmax=36, wmax=40, gap=max(3600, step * 60 * 3))[1]["box"] \
         if step < 1440 else extbox.find_boxes(rows, 1, nmin=9, nmax=36, wmax=60, gap=10 ** 9)[1]["box"]
-    st = bounce_stats(b)
+    st = bounce_stats_cached((sym, tf), b)
     zones = []
     if sup:
         tgt = res["v"] if res else last + 2 * a
@@ -262,6 +275,7 @@ def _weekly(d: list[list]) -> list[list]:
 
 # ── 미래 추정: 가능성 범위(80%·50%)와 가운데 예상선. 세 가지 방식을 과거에 걸어 보며 검증해 가장 정확한 것을 쓴다.
 import math
+import numpy as np
 
 QS = (0.1, 0.25, 0.5, 0.75, 0.9)
 FAR = 10                                # 예상선을 기본 h 봉의 몇 배까지 그릴지 (끌어서 볼 수 있는 최대)
@@ -269,12 +283,12 @@ _fc_cache: dict = {}
 MODELS = {"flat": "방향 없음(범위만)", "mom": "최근 흐름이 이어짐", "rev": "20봉 평균으로 되돌림"}
 
 
-def _drift(lc: list[float], i: int, model: str) -> float:
+def _drift(lc, i: int, model: str) -> float:
     """i 봉까지 정보로 본 봉당 기대 로그수익 (모델별)."""
     if model == "mom" and i >= 20:
         return (lc[i] - lc[i - 20]) / 20
     if model == "rev" and i >= 20:
-        return (sum(lc[i - 19:i + 1]) / 20 - lc[i]) / 10       # 10봉에 걸쳐 평균까지 돌아간다고 봄
+        return (float(np.mean(lc[i - 19:i + 1])) - lc[i]) / 10    # 10봉에 걸쳐 평균까지 돌아간다고 봄
     return 0.0
 
 
@@ -285,25 +299,32 @@ def _quant(xs: list[float], q: float) -> float:
     return s[f] + (s[min(f + 1, len(s) - 1)] - s[f]) * (k - f)
 
 
-def _cone(lc: list[float], i: int, h: int, model: str, win: int = 400, widen: float = 1.0, vol: bool = False) -> list[float]:
-    """i 봉에서 h 봉 뒤 로그가격의 분위수: 과거 h봉 수익률 분포(평균 뺌) + 모델 기대치 × h (드리프트는 h 봉까지만)."""
-    rs = [lc[j + h] - lc[j] for j in range(max(0, i - win), i - h + 1)]
-    if len(rs) < 30:
+def _cone(lc, i: int, h: int, model: str, win: int = 400, widen: float = 1.0, vol: bool = False) -> list[float]:
+    """i 봉에서 h 봉 뒤 로그가격의 분위수: 과거 h봉 수익률 분포(평균 뺌) × 폭 보정 + 모델 기대치 × h."""
+    a = _np(lc)
+    lo = max(0, i - win)
+    if i - h + 1 - lo < 30:
         return []
-    m = sum(rs) / len(rs)
-    # 최근 변동성에 맞춰 폭을 늘이거나 줄인다 (요즘처럼 출렁이는 장에서 범위가 너무 좁게 나오던 문제)
-    one = [lc[j + 1] - lc[j] for j in range(max(0, i - win), i)]
-    rec = one[-30:]
-    sd = lambda v: math.sqrt(sum((x - sum(v) / len(v)) ** 2 for x in v) / len(v)) if len(v) > 1 else 0   # noqa: E731
-    k = min(max(sd(rec) / sd(one), 0.5), 3.0) if sd(one) > 0 and len(rec) >= 10 and vol else 1.0
+    rs = a[lo + h:i + 1] - a[lo:i - h + 1]
+    k = 1.0
+    if vol:
+        one = a[lo + 1:i + 1] - a[lo:i]
+        rec = one[-30:]
+        if len(rec) >= 10 and one.std() > 0:
+            k = min(max(rec.std() / one.std(), 0.5), 3.0)
     d = _drift(lc, i, model) * min(h, 10 if model == "rev" else h)
-    return [lc[i] + (_quant(rs, q) - m) * k * widen + d for q in QS]
+    q = np.quantile(rs, QS)
+    return list(a[i] + (q - rs.mean()) * k * widen + d)
+
+
+def _np(lc):
+    return lc if isinstance(lc, np.ndarray) else np.asarray(lc, dtype=float)
 
 
 def validate(b: list[list], h: int, tests: int = 200, widen: float = 1.0, vol: bool = False,
              models=None, upto: int | None = None) -> dict:
     """upto 봉 전까지의 tests 번 시점마다 그때까지 정보로 h 봉 뒤를 추정하고 실제와 비교 (미래 정보 없음)."""
-    lc = [math.log(x[4]) for x in b]
+    lc = np.log([x[4] for x in b])
     end = (upto if upto is not None else len(b)) - h
     out = {}
     for mdl in models or MODELS:
@@ -335,7 +356,7 @@ def forecast(b: list[list], tf: str) -> dict | None:
     T = min(200, (len(b) - h - 120) // 2)
     if T < 60:
         return None
-    lc = [math.log(x[4]) for x in b]
+    lc = np.log([x[4] for x in b])
     key = (tf, len(b) // 50, round(b[0][4], 4))
     hit = _fc_cache.get(key)
     if hit and time.time() - hit[0] < 600:                   # 방식 고르기는 무거우니 10분 동안 재사용
@@ -343,7 +364,7 @@ def forecast(b: list[list], tf: str) -> dict | None:
     cut = len(b) - T                                        # 여기까지로 고르고, 이후 T 번으로 확인
     best, score = None, None
     for mdl in MODELS:
-        for w in (1.0, 1.25, 1.5, 2.0):
+        for w in (1.0, 1.5, 2.0):
             for vol in (False, True):
                 v = validate(b, h, T, w, vol, (mdl,), upto=cut).get(mdl)
                 if not v:
@@ -510,3 +531,18 @@ def plan(sym: str, tf: str, d: dict, model: str = "claude-haiku-5-5", ttl: float
     out["at"] = time.time()
     _plan_cache[key] = (time.time(), out)
     return out
+
+
+def warmer(stop: threading.Event, recent_fn=None, every: float = 240) -> None:
+    """서버 시작 직후와 이후 몇 분마다 자주 보는 차트를 미리 계산해 둔다 (첫 화면이 느리지 않게)."""
+    keys = [("SOXL", "5m"), ("SOXL", "1m"), ("SOXS", "1m"), ("SOXS", "5m")]
+    while not stop.is_set():
+        for sym, tf in keys:
+            try:
+                extra = recent_fn(sym) if recent_fn else []
+                analyze(sym, tf, extra)
+                if tf == "1m":
+                    quick_forecast(sym, extra)
+            except Exception as e:
+                log.info("미리 계산 실패 %s %s: %s", sym, tf, e)
+        stop.wait(every)

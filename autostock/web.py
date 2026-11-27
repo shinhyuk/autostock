@@ -10,6 +10,7 @@ import hmac
 import html
 import json
 import os
+import time
 from collections import defaultdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -754,8 +755,18 @@ def _ext_toggle(cfg, mode: str, token: str) -> str:
             "목표는 박스 반대쪽 80%, 손절은 경계 밖 10%, 각 시간대 마감 5분 전에 정리합니다.</div></section>")
 
 
+_ver: list = [0.0, ""]
+
+
 def _code_version() -> str:
-    """서버에 깔린 코드 버전 (자동 업데이트가 적용됐는지 화면에서 확인용)."""
+    """서버에 깔린 코드 버전 (자동 업데이트가 적용됐는지 화면에서 확인용). 1분 동안 재사용."""
+    if time.time() - _ver[0] < 60:
+        return _ver[1]
+    _ver[:] = [time.time(), _code_version0()]
+    return _ver[1]
+
+
+def _code_version0() -> str:
     import subprocess
     try:
         r = subprocess.run(["git", "log", "-1", "--format=%h (%cd 한국시간)", "--date=format-local:%m-%d %H:%M"],
@@ -966,6 +977,8 @@ def main() -> int:
     STORE = webdata.BarStore(os.path.join(config.load().data_dir, "bars_cache.json"))
     threading.Thread(target=webdata.collector, args=(STORE, threading.Event()), daemon=True).start()
     threading.Thread(target=webdata.account_refresher, args=(threading.Event(),), daemon=True).start()
+    threading.Thread(target=board.warmer, args=(threading.Event(), lambda s_: webdata.board_recent(config.load("paper"), STORE, s_)),
+                     daemon=True).start()
     pc = config.load("paper")
     threading.Thread(target=extbox.history_refresher, args=(pc.bull, webdata.ext_hist_path(pc), threading.Event()),
                      daemon=True).start()

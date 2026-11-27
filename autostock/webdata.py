@@ -290,8 +290,8 @@ def chart(cfg, mode: str, sym: str, span: int, store: BarStore, state, live, eve
         return {"error": "알 수 없는 종목"}
     market_hours.ENABLED = tuple(sorted(set(config.load().sessions) | set(cfg.sessions)))
     now = market_hours.now_et()
-    mk = market(cfg)
-    if mk and _kis_lock.acquire(timeout=2):           # 다른 조회 중이면 기다리지 않고 모아 둔 봉으로 그린다
+    mk = market(cfg) if _due(sym) else None           # 같은 종목은 15초에 한 번만 증권사에 다시 묻는다
+    if mk and _kis_lock.acquire(timeout=0.5):         # 다른 조회 중이면 기다리지 않고 모아 둔 봉으로 그린다
         try:
             store.merge(sym, mk.bars(sym, 120))
         except Exception as e:
@@ -385,6 +385,18 @@ def _enable_day(es) -> None:
         market_hours.ENABLED = tuple(sorted(set(market_hours.ENABLED) | {"day"}))
 
 
+_fetched: dict = {}
+
+
+def _due(sym: str, every: float = 15) -> bool:
+    """여러 화면이 10초마다 새로 그려도 증권사 조회는 종목당 15초에 한 번 (화면이 조회를 기다리지 않게)."""
+    t = time.time()
+    if t - _fetched.get(sym, 0) < every:
+        return False
+    _fetched[sym] = t
+    return True
+
+
 def ext_day_path(cfg) -> str:
     return os.path.join(cfg.data_dir, f"ext_day_{cfg.bull}.json")
 
@@ -475,11 +487,11 @@ def board_book(cfg, sym: str) -> dict:
 
 
 def board_recent(cfg, store: BarStore, sym: str) -> list[list]:
-    """차트 탭용 최근 1분봉: 모아 둔 봉 + 지금 한국투자증권에서 받은 봉 (프리·애프터·주간거래 포함)."""
+    """차트 탭용 최근 1분봉: 모아 둔 봉 + (모아 둔 게 1분 넘게 지났으면) 지금 한국투자증권에서 받은 봉."""
     now = market_hours.now_et()
     _enable_day(extbox.session(now))
-    mk = market(cfg)
-    if mk and _kis_lock.acquire(timeout=2):
+    mk = market(cfg) if _due(sym) else None                  # 같은 종목은 15초에 한 번만 증권사에 다시 묻는다
+    if mk and _kis_lock.acquire(timeout=0.5):
         try:
             store.merge(sym, mk.bars(sym, 120))
         except Exception as e:
