@@ -196,11 +196,11 @@ class BarStore:
             pass
 
     def merge(self, sym: str, bars) -> None:
-        cut = time.time() - 4 * 86400
         with self.lock:
             d = self.data.setdefault(sym, {})
             for b in bars:
                 d[int(b.ts.timestamp())] = [b.open, b.high, b.low, b.close, b.volume]
+            cut = (max(d) if d else time.time()) - 4 * 86400     # 가장 최근 봉 기준 4일만 보관
             for t in [t for t in d if t < cut]:
                 del d[t]
 

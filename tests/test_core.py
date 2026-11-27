@@ -1530,3 +1530,18 @@ def test_extbox_trades_right_away_using_previous_session(tmp_path, monkeypatch):
     e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
     e.tick()
     assert e.st.open and e.st.open.symbol == "SOXL" and e.st.open.kind == "extbox"          # 기다리지 않고 바로
+
+
+def test_forecast_cone_is_validated_on_unseen_data():
+    import math, random
+    from autostock import board
+    random.seed(7)
+    b, p = [], 100.0
+    for i in range(900):                                          # 방향 없는 무작위 걸음
+        p *= math.exp(random.gauss(0, 0.004))
+        b.append([i * 300_000, p, p * 1.001, p * 0.999, p, 1])
+    f = board.forecast(b, "5m")
+    assert f and f["h"] == 24 and len(f["path"]) == 24
+    assert all(q[0] <= q[1] <= q[2] <= q[3] <= q[4] for q in f["path"])
+    assert f["path"][-1][4] - f["path"][-1][0] > f["path"][0][4] - f["path"][0][0]    # 멀수록 넓어짐
+    assert 60 <= f["check"]["cov80"] <= 97                                            # 무작위 걸음이면 80% 띠가 대략 맞아야

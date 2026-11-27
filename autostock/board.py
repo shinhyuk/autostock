@@ -175,7 +175,8 @@ def analyze(sym: str, tf: str, extra: list[list] | None = None) -> dict:
     return {"sym": sym, "tf": tf, "bars": b, "last": last, "atr": a,
             "levels": _near(lv, last), "sup": sup, "res": res,
             "box": {"hi": bx["hi"], "lo": bx["lo"], "start": bx["start"] * 1000} if bx else None,
-            "zones": zones, "stats": st, "kis_bars": added}
+            "zones": zones, "stats": st, "kis_bars": added,
+            "fc": forecast(bars_daily(sym) if tf == "1d" else b, tf)}
 
 
 def _ma(xs: list[float], n: int) -> float | None:
@@ -257,3 +258,109 @@ def _weekly(d: list[list]) -> list[list]:
             w = out[k]
             w[2], w[3], w[4], w[5] = max(w[2], x[2]), min(w[3], x[3]), x[4], w[5] + (x[5] or 0)
     return [out[k] for k in sorted(out)]
+
+
+# ── 미래 추정: 가능성 범위(80%·50%)와 가운데 예상선. 세 가지 방식을 과거에 걸어 보며 검증해 가장 정확한 것을 쓴다.
+import math
+
+QS = (0.1, 0.25, 0.5, 0.75, 0.9)
+_fc_cache: dict = {}
+MODELS = {"flat": "방향 없음(범위만)", "mom": "최근 흐름이 이어짐", "rev": "20봉 평균으로 되돌림"}
+
+
+def _drift(lc: list[float], i: int, model: str) -> float:
+    """i 봉까지 정보로 본 봉당 기대 로그수익 (모델별)."""
+    if model == "mom" and i >= 20:
+        return (lc[i] - lc[i - 20]) / 20
+    if model == "rev" and i >= 20:
+        return (sum(lc[i - 19:i + 1]) / 20 - lc[i]) / 10       # 10봉에 걸쳐 평균까지 돌아간다고 봄
+    return 0.0
+
+
+def _quant(xs: list[float], q: float) -> float:
+    s = sorted(xs)
+    k = (len(s) - 1) * q
+    f = math.floor(k)
+    return s[f] + (s[min(f + 1, len(s) - 1)] - s[f]) * (k - f)
+
+
+def _cone(lc: list[float], i: int, h: int, model: str, win: int = 400, widen: float = 1.0, vol: bool = False) -> list[float]:
+    """i 봉에서 h 봉 뒤 로그가격의 분위수: 과거 h봉 수익률 분포(평균 뺌) + 모델 기대치 × h (드리프트는 h 봉까지만)."""
+    rs = [lc[j + h] - lc[j] for j in range(max(0, i - win), i - h + 1)]
+    if len(rs) < 30:
+        return []
+    m = sum(rs) / len(rs)
+    # 최근 변동성에 맞춰 폭을 늘이거나 줄인다 (요즘처럼 출렁이는 장에서 범위가 너무 좁게 나오던 문제)
+    one = [lc[j + 1] - lc[j] for j in range(max(0, i - win), i)]
+    rec = one[-30:]
+    sd = lambda v: math.sqrt(sum((x - sum(v) / len(v)) ** 2 for x in v) / len(v)) if len(v) > 1 else 0   # noqa: E731
+    k = min(max(sd(rec) / sd(one), 0.5), 3.0) if sd(one) > 0 and len(rec) >= 10 and vol else 1.0
+    d = _drift(lc, i, model) * min(h, 10 if model == "rev" else h)
+    return [lc[i] + (_quant(rs, q) - m) * k * widen + d for q in QS]
+
+
+def validate(b: list[list], h: int, tests: int = 200, widen: float = 1.0, vol: bool = False,
+             models=None, upto: int | None = None) -> dict:
+    """upto 봉 전까지의 tests 번 시점마다 그때까지 정보로 h 봉 뒤를 추정하고 실제와 비교 (미래 정보 없음)."""
+    lc = [math.log(x[4]) for x in b]
+    end = (upto if upto is not None else len(b)) - h
+    out = {}
+    for mdl in models or MODELS:
+        cov80 = cov50 = hit = n_dir = n = 0
+        pin = 0.0
+        for i in range(max(h + 60, end - tests), end):
+            q = _cone(lc, i, h, mdl, widen=widen, vol=vol)
+            if not q:
+                continue
+            y = lc[i + h]
+            n += 1
+            cov80 += q[0] <= y <= q[4]
+            cov50 += q[1] <= y <= q[3]
+            pin += sum(max(t * (y - v), (t - 1) * (y - v)) for t, v in zip(QS, q)) / len(QS)
+            if mdl != "flat" and abs(q[2] - lc[i]) > 1e-9:
+                n_dir += 1
+                hit += (q[2] > lc[i]) == (y > lc[i])
+        if n:
+            out[mdl] = {"n": n, "cov80": cov80 / n * 100, "cov50": cov50 / n * 100, "pin": pin / n * 1e4,
+                        "dir": hit / n_dir * 100 if n_dir else None, "ndir": n_dir}
+    return out
+
+
+def forecast(b: list[list], tf: str) -> dict | None:
+    """다음 H 봉의 가능성 범위.
+    1) 방식(방향 없음/흐름/되돌림)과 폭 보정(1~2배, 최근 변동성 반영 여부)을 앞쪽 200번 시점으로 고르고
+    2) 그 선택을 바로 뒤 200번 시점(고를 때 안 본 구간)에서 다시 채점해 화면에 보여준다."""
+    h = {"1m": 30, "5m": 24, "15m": 16, "1h": 12, "1d": 10}.get(tf, 20)
+    T = min(200, (len(b) - h - 120) // 2)
+    if T < 60:
+        return None
+    lc = [math.log(x[4]) for x in b]
+    key = (tf, len(b) // 50, round(b[0][4], 4))
+    hit = _fc_cache.get(key)
+    if hit and time.time() - hit[0] < 600:                   # 방식 고르기는 무거우니 10분 동안 재사용
+        mdl, w, vol, chk, momd = hit[1]
+        i = len(b) - 1
+        path = [[math.exp(x) for x in _cone(lc, i, k, mdl, widen=w, vol=vol)] for k in range(1, h + 1)]
+        return {"h": h, "model": mdl, "label": MODELS[mdl], "widen": w, "vol": vol, "path": [p for p in path if p],
+                "check": chk, "mom_dir": momd}
+    cut = len(b) - T                                        # 여기까지로 고르고, 이후 T 번으로 확인
+    best, score = None, None
+    for mdl in MODELS:
+        for w in (1.0, 1.25, 1.5, 2.0):
+            for vol in (False, True):
+                v = validate(b, h, T, w, vol, (mdl,), upto=cut).get(mdl)
+                if not v:
+                    continue
+                sc = v["pin"] + abs(v["cov80"] - 80) * 2           # 정확하면서 80% 띠가 실제로 80% 맞게
+                if score is None or sc < score:
+                    best, score = (mdl, w, vol), sc
+    if not best:
+        return None
+    mdl, w, vol = best
+    chk = validate(b, h, T, w, vol, (mdl,)).get(mdl)          # 고를 때 안 본 마지막 T 번
+    mom = validate(b, h, T, 1.0, False, ("mom",)).get("mom")    # 참고: '최근 흐름이 이어진다'의 방향 적중
+    _fc_cache[key] = (time.time(), (mdl, w, vol, chk, mom and mom["dir"]))
+    i = len(b) - 1
+    path = [[math.exp(x) for x in _cone(lc, i, k, mdl, widen=w, vol=vol)] for k in range(1, h + 1)]
+    return {"h": h, "model": mdl, "label": MODELS[mdl], "widen": w, "vol": vol, "path": [p for p in path if p],
+            "check": chk, "mom_dir": mom and mom["dir"]}
