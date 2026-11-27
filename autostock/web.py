@@ -637,17 +637,15 @@ def render_board(cfg, token: str, now: datetime | None = None) -> str:
     tfs = "".join(f"<button data-btf='{k}'>{v}</button>" for k, v in board.TFLABEL.items())
     return ("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             "<meta name=referrer content=no-referrer><title>autostock 차트</title>"
-            f"<style>{CSS}</style><main><header><h1>차트 · 호가</h1><span class=pill>{now:%m-%d %H:%M}</span></header>"
+            f"<style>{CSS}</style><main><header><h1>차트 · 계획</h1><span class=pill>{now:%m-%d %H:%M}</span></header>"
             f"<nav>{_nav(token, 'board', cfg.modes)}</nav>"
             f"<section class=card><div class=seg>{syms}</div><div class=seg>{tfs}<span class=sp></span>"
             "<button data-bzoom=out>－</button><button data-bzoom=in>＋</button></div>"
             "<canvas id=bc></canvas><div id=bmsg class=note>불러오는 중…</div></section>"
-            "<h2>단기: 지지·저항대·추천 구간 (위 차트 기준)</h2><section class=card id=binfo></section>"
-            "<h2>장기 관점 (일봉·주봉, 최근 5년)</h2><section class=card id=blong><div class=note>불러오는 중…</div></section>"
-            "<h2>호가창 (한국투자증권)</h2><section class=card id=bbook><div class=note>불러오는 중…</div></section>"
-            "<footer>지지대·저항대는 차트의 고점·저점이 여러 번 모인 가격대, 박스는 위·아래에 2번씩 닿은 옆걸음 구간입니다. "
-            "추천 구간은 지지선 위(매수)·저항선 아래(매도·하락)이고, 목표는 반대쪽 선, 손절은 선 너머 ATR 절반입니다. "
-            "참고용이며 수익을 보장하지 않습니다. 봉은 야후 시세(시간외 포함, 일봉 제외)를 씁니다.</footer></main>"
+            "<h2>계획 (AI 추천)</h2><section class=card id=bplan><div class=note>계획을 세우는 중… (처음엔 10초쯤)</div></section>"
+            "<footer>계획은 이 차트의 지지·저항대, 박스, 예상선(과거 방향 적중률), 지지·저항 근처 과거 반등률, 장기 추세(50·200일 평균, "
+            "1년 고점 대비, 레버리지 감가)를 Claude 가 종합해 10분마다 새로 세웁니다. 참고용이며 수익을 보장하지 않습니다. "
+            "봉은 야후 시세(시간외 포함)와 한국투자증권 최근 분봉입니다.</footer></main>"
             f"<script>{BOARD_JS}</script>")
 
 
@@ -869,6 +867,14 @@ def make_handler(token: str):
                     sym = sym if sym in board.SYMBOLS else "SOXL"
                     if q.get("what", [""])[0] == "book":
                         data = webdata.board_book(cfg, sym)
+                    elif q.get("what", [""])[0] == "plan":
+                        tf = q.get("tf", ["5m"])[0]
+                        tf = tf if tf in board.TF else "5m"
+                        try:
+                            extra = webdata.board_recent(cfg, STORE, sym) if STORE is not None else []
+                            data = board.plan(sym, tf, board.analyze(sym, tf, extra), cfg.model)
+                        except Exception as ex:
+                            data = {"error": f"{type(ex).__name__}: {ex}"[:160]}
                     elif q.get("what", [""])[0] == "long":
                         try:
                             data = board.longterm(sym)

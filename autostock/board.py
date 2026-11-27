@@ -404,3 +404,103 @@ def quick_forecast(sym: str, recent: list[list], tf: str = "1m") -> dict | None:
     h = f["h"]
     return {"h": h, "line": f["line"][:h], "band": f["band"][:h], "model": f["model"], "label": f["label"],
             "dir_check": f["dir_check"], "strength": strength(f)}
+
+
+# ── 계획: 차트 정보(지지·저항, 박스, 예상선, 장기 추세, 과거 반등률)를 모아 Claude 가 매매 계획 하나를 낸다
+from typing import Literal
+from pydantic import BaseModel, Field
+
+_plan_cache: dict = {}
+
+
+class Plan(BaseModel):
+    action: Literal["BUY", "AVOID", "WAIT"] = Field(description="BUY=이 종목 매수, AVOID=이 종목은 사지 말 것(하락 쪽, 반대 종목 고려), WAIT=관망")
+    entry_lo: float = Field(description="진입 가격대 아래 (이 종목 가격). WAIT/AVOID 면 기다릴 가격대")
+    entry_hi: float = Field(description="진입 가격대 위")
+    target: float = Field(description="목표가")
+    stop: float = Field(description="손절가")
+    horizon: str = Field(description="보유 기간 (예: '오늘 장중', '2~3일', '몇 주')")
+    confidence: float = Field(description="확신도 0~1")
+    reasons: list[str] = Field(description="근거 2~4개, 각 한 문장 (한국어)")
+    long_view: str = Field(description="장기 관점 한 문장 (한국어)")
+
+
+PLAN_SYSTEM = """\
+당신은 미국 반도체 레버리지 ETF 차트를 보고 개인 투자자에게 매매 계획 하나를 제시합니다.
+입력 JSON: 종목, 봉 단위, 현재가, 한 봉 평균 움직임(atr), 가까운 지지대·저항대(가격 범위와 닿은 횟수), 박스,
+과거에 지지대·저항대 근처에서 실제로 반등/이탈한 비율, 예상선(방향과 과거 방향 적중률), 장기 추세(50·200일 평균, 1년 고점 대비 하락률,
+레버리지 감가). SOXL 은 반도체 3배, SOXS 는 반대 3배입니다.
+- 근거가 약하면(반등률·적중률이 50% 근처, 신호가 엇갈림) WAIT 를 고르고 기다릴 가격대를 주세요. 억지로 매수하지 마세요.
+- 가격은 반드시 이 종목 가격으로, 손절은 진입가대 바깥, 목표는 손절보다 멀게(손익비 1.5 이상) 잡으세요.
+- 3배 레버리지는 오래 들수록 감가가 크다는 점을 보유 기간에 반영하세요.
+- confidence 는 실제로 맞을 가능성이고, 과거 적중률보다 높게 쓰지 마세요."""
+
+
+def _plan_input(sym: str, tf: str, d: dict) -> dict:
+    lt = None
+    try:
+        lt = longterm(sym)
+    except Exception:
+        pass
+    fc = d.get("fc") or {}
+    st = d.get("stats") or {}
+    rate = lambda a: round(a[0] / (a[0] + a[1]) * 100) if a and a[0] + a[1] else None   # noqa: E731
+    band = lambda x: x and {"범위": [round(x["lo"], 2), round(x["hi"], 2)], "닿은 횟수": x["n"]}   # noqa: E731
+    return {"종목": sym, "봉": TFLABEL.get(tf, tf), "현재가": round(d["last"], 2), "atr": round(d["atr"], 3),
+            "지지대": band(d.get("sup")), "저항대": band(d.get("res")),
+            "박스": d.get("box") and [round(d["box"]["lo"], 2), round(d["box"]["hi"], 2)],
+            "지지대 근처 반등률%": rate(st.get("sup")), "저항대 근처 되밀림률%": rate(st.get("res")),
+            "예상선": fc and {"방식": fc.get("label"), f"{fc.get('h')}봉 뒤": fc.get("line") and round(fc["line"][fc["h"] - 1], 2),
+                            "방향 적중%": fc.get("dir_check") and round(fc["dir_check"])},
+            "장기": lt and not lt.get("error") and {"50일평균": round(lt["ma50"], 2), "200일평균": round(lt["ma200"], 2),
+                                                 "1년고점대비%": round(lt["dd"], 1), "감가": lt.get("decay")}}
+
+
+def _rule_plan(d: dict) -> dict:
+    """Claude 를 못 쓸 때: 손익비 1.5 이상일 때만 지지대 위 매수 / 저항대 아래 회피, 아니면 관망."""
+    p = _rule_plan0(d)
+    mid = (p["entry_lo"] + p["entry_hi"]) / 2
+    if p["action"] != "WAIT" and abs(p["target"] - mid) < 1.5 * abs(mid - p["stop"]):
+        p.update(action="WAIT", confidence=0.3, reasons=p["reasons"] + ["목표까지 거리가 손절 거리의 1.5배가 안 돼 기다림"])
+    return p
+
+
+def _rule_plan0(d: dict) -> dict:
+    last, a = d["last"], d["atr"]
+    sup, res = d.get("sup"), d.get("res")
+    if sup and last - sup["hi"] <= 0.5 * a:
+        return {"action": "BUY", "entry_lo": sup["lo"], "entry_hi": sup["hi"] + 0.3 * a, "target": res["lo"] if res else last + 2 * a,
+                "stop": sup["lo"] - 0.5 * a, "horizon": "오늘 장중", "confidence": 0.5,
+                "reasons": ["지지대 바로 위", "목표는 위 저항대"], "long_view": "", "src": "규칙"}
+    if res and res["lo"] - last <= 0.5 * a:
+        return {"action": "AVOID", "entry_lo": res["lo"] - 0.3 * a, "entry_hi": res["hi"], "target": sup["hi"] if sup else last - 2 * a,
+                "stop": res["hi"] + 0.5 * a, "horizon": "오늘 장중", "confidence": 0.5,
+                "reasons": ["저항대 바로 아래", "되밀리면 아래 지지대까지"], "long_view": "", "src": "규칙"}
+    lo = sup["hi"] if sup else last - a
+    return {"action": "WAIT", "entry_lo": lo, "entry_hi": lo + 0.3 * a, "target": res["lo"] if res else last + 2 * a,
+            "stop": lo - 0.8 * a, "horizon": "-", "confidence": 0.3,
+            "reasons": ["지지대·저항대 어느 쪽에도 가깝지 않음"], "long_view": "", "src": "규칙"}
+
+
+def plan(sym: str, tf: str, d: dict, model: str = "claude-haiku-5-5", ttl: float = 600) -> dict:
+    """10분 캐시. Claude 호출은 종목·봉 단위마다 10분에 한 번."""
+    key = (sym, tf)
+    hit = _plan_cache.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    if d.get("error") or not d.get("last"):
+        return {"error": "차트 정보 부족"}
+    try:
+        import anthropic
+        client = anthropic.Anthropic(timeout=60.0, max_retries=1)
+        resp = client.messages.parse(model=model, max_tokens=4000, system=PLAN_SYSTEM, output_format=Plan,
+                                     messages=[{"role": "user", "content": json.dumps(_plan_input(sym, tf, d), ensure_ascii=False)}])
+        if resp.parsed_output is None:
+            raise ValueError(f"stop_reason={resp.stop_reason}")
+        out = {**resp.parsed_output.model_dump(), "src": "Claude"}
+    except Exception as e:
+        log.info("계획 생성 실패, 규칙으로 대신: %s", e)
+        out = {**_rule_plan(d), "note": f"AI 판단을 받지 못해 규칙으로 계산 ({type(e).__name__})"}
+    out["at"] = time.time()
+    _plan_cache[key] = (time.time(), out)
+    return out

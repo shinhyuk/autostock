@@ -1438,7 +1438,7 @@ def test_chart_tab_levels_box_zones_and_page(monkeypatch, tmp_path):
     assert len(d["levels"]) <= 6
     cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path))
     page = web.render_board(cfg, "t")
-    assert "id=bc" in page and "data-btf='1d'" in page and "호가창" in page
+    assert "id=bc" in page and "data-btf='1d'" in page and "계획 (AI 추천)" in page and "호가창" not in page
     assert "mode=board" in web.render(cfg, "paper", "t")                                   # 탭 맨 앞에 '차트'
 
     class MK:
@@ -1562,3 +1562,31 @@ def test_forecast_strength_and_page_chart_payload(monkeypatch, tmp_path):
     monkeypatch.setattr(webdata, "market", lambda c: None)
     d = webdata.chart(Settings(), "paper", "SOXL", 60, store, None, None, [])
     assert d["fc"] is fc
+
+
+def test_chart_plan_uses_claude_or_falls_back_to_rules(monkeypatch):
+    from autostock import board
+    d = {"last": 100.0, "atr": 1.0, "sup": {"v": 99.6, "lo": 99.4, "hi": 99.8, "n": 3},
+         "res": {"v": 104, "lo": 103.8, "hi": 104.2, "n": 2}, "stats": {}, "fc": None}
+    assert board._rule_plan({**d, "res": {"v": 100.4, "lo": 100.3, "hi": 100.5, "n": 2}})["action"] == "WAIT"   # 손익비 부족
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    board._plan_cache.clear()
+    p = board.plan("SOXL", "5m", d)
+    assert p["action"] == "BUY" and p["src"] == "규칙" and p["stop"] < p["entry_lo"] < p["target"] and "note" in p
+
+    class R:
+        stop_reason = "end_turn"
+        parsed_output = board.Plan(action="WAIT", entry_lo=99, entry_hi=99.5, target=103, stop=98, horizon="오늘 장중",
+                                   confidence=0.4, reasons=["신호가 엇갈림"], long_view="장기 하락 추세")
+    class C:
+        def __init__(self, **k): self.messages = self
+        def parse(self, **k):
+            assert "지지대" in k["messages"][0]["content"]
+            return R()
+    import anthropic
+    monkeypatch.setattr(anthropic, "Anthropic", C)
+    monkeypatch.setattr(board, "longterm", lambda s: {"error": "x"})
+    board._plan_cache.clear()
+    p = board.plan("SOXL", "5m", d)
+    assert p["action"] == "WAIT" and p["src"] == "Claude"
+    assert board.plan("SOXL", "5m", d) is p                                                 # 10분 캐시
