@@ -26,14 +26,14 @@ function info(){const el=document.getElementById('binfo');if(!D||!D.last){el.inn
   h+=`<div class='zone ${buy?'zb':'zs'}'><b>${buy?'추천 매수 구간 (지지선 위)':'추천 매도·하락 구간 (저항선 아래)'}</b> ${usd(z.lo)} ~ ${usd(z.hi)}<br>`+
    `${buy?'목표 '+usd(z.target)+' · 손절 '+usd(z.stop):'목표(아래) '+usd(z.target)+' · 손절(위) '+usd(z.stop)} · 손익비 ${z.rr.toFixed(1)} : 1</div>`}
  const fc=D.fc;if(fc&&fc.line&&fc.line.length){const e=fc.line[fc.h-1],c=fc.check||{};
-  h+=`<div class='zone' style='border-left:4px solid var(--vwap);background:color-mix(in srgb,var(--vwap) 10%,transparent)'><b>예상선 (${fc.label})</b> ${fc.h}봉 뒤 ${usd(e)} (${((e/D.last-1)*100).toFixed(1)}%) · 차트를 왼쪽으로 끌면 ${fc.h*3}봉 뒤까지 (검증한 ${fc.h}봉 뒤부터는 기울기 없이 범위만 넓어짐)<br>`+
+  h+=`<div class='zone' style='border-left:4px solid var(--vwap);background:color-mix(in srgb,var(--vwap) 10%,transparent)'><b>예상선 (${fc.label})</b> ${fc.h}봉 뒤 ${usd(e)} (${((e/D.last-1)*100).toFixed(1)}%) · 차트를 왼쪽으로 끌면 ${fc.line.length}봉 뒤까지 (검증한 ${fc.h}봉 뒤부터는 기울기 없이 범위만 넓어짐)<br>`+
    `<span class=note>${fc.model=='flat'?'과거에 "흐름 이어짐"·"되돌림" 둘 다 방향을 55% 넘게 맞히지 못해 평평하게 그렸습니다. ':`<b>방향 검증</b>: 고를 때 안 본 최근 구간에서 ${fc.h}봉 뒤 방향을 맞힌 비율 <b>${fc.dir_check!=null?Math.round(fc.dir_check):'-'}%</b> (50%면 동전 던지기). `}`+
    `옅은 띠는 50% 가능성 범위(검증: 실제로 그 안에 든 비율 ${c.cov50!=null?Math.round(c.cov50):'-'}%).</span></div>`}
  h+=`<div class=note>이 차트의 과거 기록: 지지선 근처에 왔을 때 위로 1 ATR 먼저 간 비율 <b>${p(st.sup)}</b> · 저항선 근처에서 아래로 먼저 간 비율 <b>${p(st.res)}</b>. 50% 근처면 선만 보고 방향을 정하기 어렵다는 뜻입니다.</div>`;
  el.innerHTML=h}
 function draw(){if(!D||!D.bars||!D.bars.length)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
  const B=D.bars,L=B.length,FL=(D.fc&&D.fc.line)?D.fc.line.length:0;n=Math.max(15,Math.min(n,L+FL));
- end=Math.max(n,Math.min(end,L+FL,L+n-10));follow=end>=L;const s=B.slice(Math.max(0,end-n),Math.min(end,L));
+ end=Math.max(n,Math.min(end,L+FL,L+n-5));follow=end>=L;const s=B.slice(Math.max(0,end-n),Math.min(end,L));
  const F=Math.max(0,end-L),FCL=FL?D.fc.line.slice(0,F):[],FCB=FL?D.fc.band.slice(0,F):[];n=s.length+F;
  const pr=58,pb=20,ph=H*0.78-pb,vt=H*0.80,vh=H*0.2-pb,pw=W-pr,bw=pw/n;
  let lo=Math.min(...s.map(b=>b[3]),...FCL,...FCB.map(q=>q[0])),hi=Math.max(...s.map(b=>b[2]),...FCL,...FCB.map(q=>q[1]));const pad=(hi-lo)*0.08||lo*0.01;lo-=pad;hi+=pad;

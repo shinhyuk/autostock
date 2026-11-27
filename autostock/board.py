@@ -264,6 +264,7 @@ def _weekly(d: list[list]) -> list[list]:
 import math
 
 QS = (0.1, 0.25, 0.5, 0.75, 0.9)
+FAR = 10                                # 예상선을 기본 h 봉의 몇 배까지 그릴지 (끌어서 볼 수 있는 최대)
 _fc_cache: dict = {}
 MODELS = {"flat": "방향 없음(범위만)", "mom": "최근 흐름이 이어짐", "rev": "20봉 평균으로 되돌림"}
 
@@ -365,13 +366,13 @@ def forecast(b: list[list], tf: str) -> dict | None:
 
 
 def _fc_out(lc, h, mdl, w, vol, chk, lm, dir_pick, dir_check) -> dict:
-    """예상선(lm 방식의 가운데 값)과 좁은 50% 범위를 기본 h 봉의 3배까지. 끌어서 더 먼 미래를 볼 수 있게."""
+    """예상선(lm 방식의 가운데 값)과 좁은 50% 범위를 기본 h 봉의 FAR 배까지. 끌어서 더 먼 미래를 볼 수 있게."""
     i = len(lc) - 1
     line, band = [], []
     d = _drift(lc, i, lm) if lm != "flat" else 0.0
     cap = 10 if lm == "rev" else h                          # 검증한 거리(h 봉)까지만 기울이고 그 뒤는 평평하게
-    for k in range(1, 3 * h + 1):
-        q = _cone(lc, i, k, mdl, widen=w, vol=vol)
+    for k in range(1, FAR * h + 1):
+        q = _cone(lc, i, k, mdl, widen=w, vol=vol, win=max(400, 3 * k))   # 먼 미래는 더 긴 과거로 범위를 잡는다
         if not q:
             continue
         mid = lc[i] + d * min(k, cap)                       # 매끈한 예상선 (분위수 잡음 없이)
