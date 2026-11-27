@@ -16,7 +16,7 @@ async function load(reset){const msg=document.getElementById('bmsg');try{const r
   msg.textContent=`${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} · 마지막 ${new Date(lt).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'})}${D.kis_bars?' (최근 '+D.kis_bars+'개는 한국투자증권)':''} · 드래그=시간 이동(왼쪽으로 끌면 더 먼 미래) · 두 손가락/휠=확대축소 · 두 번 누르면 최신`;
   const fi=document.getElementById('bfc');if(D.fc){const m=a&&a.models||{};const top=Object.entries(m).sort((x,y)=>x[1].err-y[1].err).slice(0,3);
    fi.innerHTML=`<b>예상선</b>: ${D.fc.label}${D.fc.model!='flat'&&a&&a.dir!=null?' · 방향 적중 '+Math.round(a.dir)+'%':''}${a&&a.in50!=null?' · 50% 범위 적중 '+Math.round(a.in50)+'%':''} (지난 ${a?a.n:0}번 예측을 실제와 비교해 채점, 범위 폭 ×${D.fc.w})<br>`+
-    `<span class=note>서버가 예측을 기록해 두고, 후보 방식 ${Object.keys(m).length}가지 중 최근 실제 오차가 가장 작은 것을 스스로 고릅니다. 차트의 가는 선은 지난 예측(초록=맞음, 주황=틀림, 회색=진행 중). `+
+    `<span class=note>서버가 예측을 기록해 두고, 후보 방식 ${Object.keys(m).length}가지 중 최근 실제 오차가 가장 작은 것을 스스로 고릅니다. 보라 점선은 지난 예측(끝점 초록=맞음, 주황=틀림, 빈 점=아직). `+
     (top.length?'오차 작은 순: '+top.map(([k,v])=>`${v.label||k} ${v.err}`).join(' · '):'')+`</span>`}else fi.innerHTML='<span class=note>예상선을 준비 중입니다 (서버가 기록을 시작하면 30초 안에 나타남)</span>'}catch(e){msg.textContent='연결 실패'}}
 async function plan(ask){const el=document.getElementById('bplan'),btn=document.getElementById('bask');const s0=sym,t0=tf;
  if(ask){btn.disabled=true;btn.textContent='계획 세우는 중… (10초쯤)'}

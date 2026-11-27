@@ -42,9 +42,11 @@ function draw(){if(!D||!D.bars||D.bars.length<2){ctx.clearRect(0,0,cv.width,cv.h
   ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(x,Y(h));ctx.lineTo(x,Y(l));ctx.stroke();if(bw>=2.5)ctx.fillRect(x-w/2,Math.min(Y(o),Y(cl)),w,Math.max(Math.abs(Y(o)-Y(cl)),1))}
  if(D.vwap){ctx.strokeStyle=vw;ctx.lineWidth=1.5;ctx.beginPath();let st=false;for(const c of vis){const v=D.vwap[c];if(v==null){st=false;continue}if(!st){ctx.moveTo(X(c),Y(v));st=true}else ctx.lineTo(X(c),Y(v))}ctx.stroke();ctx.lineWidth=1}
  // 지난 예측들: 맞음 초록, 틀림 주황, 진행 중 회색
+ // 지난 예측: 그때 그린 보라색 점선을 그대로 남기고, 끝점에 결과 표시 (초록=맞음, 주황=틀림, 빈 점=아직)
  for(const p of D.fc&&D.fc.past||[]){const xs=p.pts.map(([k,v])=>[colOf(p.t+k*p.step),v]);
-  const x0=colOf(p.t);if(x0>end||xs[xs.length-1][0]<c0)continue;ctx.strokeStyle=p.hit==null?mut:p.hit?ok:warn;ctx.globalAlpha=.5;ctx.lineWidth=1.2;
-  ctx.beginPath();ctx.moveTo(X(x0),Y(p.p0));for(const [c,v] of xs)ctx.lineTo(X(c),Y(v));ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=1}
+  const x0=colOf(p.t);if(x0>end||xs[xs.length-1][0]<c0)continue;ctx.strokeStyle=vw;ctx.globalAlpha=.55;ctx.lineWidth=1.3;ctx.setLineDash([4,3]);
+  ctx.beginPath();ctx.moveTo(X(x0),Y(p.p0));for(const [c,v] of xs)ctx.lineTo(X(c),Y(v));ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;ctx.lineWidth=1;
+  const [ce,ve]=xs[xs.length-1];ctx.beginPath();ctx.arc(X(ce),Y(ve),3.2,0,7);if(p.hit==null){ctx.strokeStyle=vw;ctx.stroke()}else{ctx.fillStyle=p.hit?ok:warn;ctx.fill()}}
  // 예상선: 세기만큼 진하게
  if(fpts.length){const st=fc.strength||0,x0=fs[0];ctx.fillStyle=vw;ctx.globalAlpha=.06+.1*st;ctx.beginPath();ctx.moveTo(X(x0),Y(fs[1]));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[2][1])));
   for(let k=fpts.length-1;k>=0;k--)ctx.lineTo(X(fpts[k][0]),Y(fpts[k][2][0]));ctx.closePath();ctx.fill();ctx.globalAlpha=.35+.65*st;ctx.strokeStyle=vw;ctx.lineWidth=1.4+2.6*st;if(!st)ctx.setLineDash([5,3]);

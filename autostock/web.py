@@ -110,7 +110,8 @@ nav a.on{background:var(--card);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,
 .more summary{list-style:none;padding:13px 2px;margin:0;font-size:14px;font-weight:600;color:var(--fg);display:flex;justify-content:space-between}
 .more summary::after{content:'＋';color:var(--mut)}.more details[open] summary::after{content:'－'}.more summary::-webkit-details-marker{display:none}
 .more .feed .row{padding:8px 2px}.more table{margin-bottom:8px}.more .note{margin:0 2px 10px}
-.legend{margin:8px 0 0;gap:4px 10px}.lg-line.fcl{border-color:var(--vwap);border-top-width:3px}.lg-line.okl{border-color:var(--ok)}.lg-line.wrl{border-color:var(--warn)}
+.legend{margin:8px 0 0;gap:4px 10px}.lg-line.fcl{border-color:var(--vwap);border-top-width:3px}.lg-line.okl{border-color:var(--ok)}.lg-line.wrl{border-color:var(--warn)}.lg-line.pdl{border-color:var(--vwap);border-top-style:dashed;opacity:.7}
+.lgdot{width:7px;height:7px;border-radius:50%}.lgdot.okd{background:var(--ok)}.lgdot.wrd{background:var(--warn)}
 .note.small{font-size:12px}.seg button{border-radius:999px;padding:4px 11px}.zb{border-radius:999px}
 footer{font-size:12px;color:var(--mut);text-align:center;margin-top:20px}
 .acct .big{font-size:30px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
@@ -293,7 +294,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"<canvas id=chart data-mode='{e(mode)}' data-sym='{e(held_sym)}'></canvas>"
                "<div class=legend><span><i class='lg-up'></i>매수</span><span><i class='lg-dn'></i>매도</span>"
                "<span><i class='lg-line vwap'></i>VWAP</span><span><i class='lg-line fcl'></i>예상</span>"
-               "<span><i class='lg-line okl'></i>지난 예측 맞음</span><span><i class='lg-line wrl'></i>틀림</span></div>"
+               "<span><i class='lg-line pdl'></i>지난 예측</span><span><i class='lgdot okd'></i>맞음</span><span><i class='lgdot wrd'></i>틀림</span></div>"
                "<div id=cmsg class='note small'>불러오는 중…</div></section>")
 
     # ── 거래 내역: 각 거래의 손익과 총액 대비 %

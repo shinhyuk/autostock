@@ -750,7 +750,7 @@ class Recorder:
                 if r.get("res") and r["model"] == "flat":
                     ok = r["res"]["in50"]                            # 방향이 없으면 50% 범위 안에 들었는지로 맞음/틀림
                 past.append({"t": r["t"], "p0": r["p0"], "step": r["step"], "pts": [[k, ln[k - 1]] for k in ks], "hit": ok})
-            past = past[-80:]
+            past = past[-300:]
         far = []
         if last["band"]:
             lo, hi = last["band"][-1]
