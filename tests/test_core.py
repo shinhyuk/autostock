@@ -1546,3 +1546,19 @@ def test_forecast_cone_is_validated_on_unseen_data():
     assert f["band"][-1][1] - f["band"][-1][0] > f["band"][0][1] - f["band"][0][0]          # 멀수록 넓어짐
     assert f["model"] in ("flat", "mom", "rev")
     assert f["check"]["cov80"] >= 60                                                   # 고를 때 안 본 구간에서도 범위가 대체로 맞아야
+
+
+def test_forecast_strength_and_page_chart_payload(monkeypatch, tmp_path):
+    from autostock import board, market_hours, webdata
+    assert board.strength({"model": "mom", "dir_check": 70}) == 1.0
+    assert board.strength({"model": "mom", "dir_check": 60}) == 0.5
+    assert board.strength({"model": "flat", "dir_check": 80}) == 0.0
+    fc = {"h": 3, "line": [1, 2, 3], "band": [[0, 2]] * 3, "model": "mom", "label": "x", "dir_check": 65, "strength": .75}
+    monkeypatch.setattr(board, "quick_forecast", lambda *a, **k: fc)
+    store = webdata.BarStore(str(tmp_path / "b.json"))
+    now = datetime(2026, 11, 24, 11, 0, tzinfo=ET)
+    store.merge("SOXL", [Bar(now - timedelta(minutes=5 - i), 30, 30, 30, 30, 1) for i in range(5)])
+    monkeypatch.setattr(market_hours, "now_et", lambda: now)
+    monkeypatch.setattr(webdata, "market", lambda c: None)
+    d = webdata.chart(Settings(), "paper", "SOXL", 60, store, None, None, [])
+    assert d["fc"] is fc

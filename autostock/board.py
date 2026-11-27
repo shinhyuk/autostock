@@ -378,5 +378,29 @@ def _fc_out(lc, h, mdl, w, vol, chk, lm, dir_pick, dir_check) -> dict:
         mid = lc[i] + d * min(k, cap)                       # 매끈한 예상선 (분위수 잡음 없이)
         line.append(math.exp(mid))
         band.append([math.exp(mid + q[1] - q[2]), math.exp(mid + q[3] - q[2])])
-    return {"h": h, "line": line, "band": band, "model": lm, "label": MODELS[lm],
-            "check": chk, "dir_check": dir_check, "dir_pick": dir_pick}
+    out = {"h": h, "line": line, "band": band, "model": lm, "label": MODELS[lm],
+           "check": chk, "dir_check": dir_check, "dir_pick": dir_pick}
+    out["strength"] = strength(out)
+    return out
+
+
+def strength(fc: dict | None) -> float:
+    """예측 세기 0~1: 고를 때 안 본 구간에서의 방향 적중률로 정한다 (50% → 0, 70% 이상 → 1). 평평하면 0."""
+    if not fc or fc.get("model") == "flat" or fc.get("dir_check") is None:
+        return 0.0
+    return max(0.0, min(1.0, (fc["dir_check"] - 50) / 20))
+
+
+def quick_forecast(sym: str, recent: list[list], tf: str = "1m") -> dict | None:
+    """다른 탭 차트용: 야후 봉 + 증권사 최근 봉으로 다음 h 봉 예상선 (방식 선택은 10분 캐시)."""
+    try:
+        b, _ = merge_recent(bars(sym, tf), recent, tf)
+        f = forecast(b, tf)
+    except Exception as e:
+        log.info("예상선 계산 실패 %s: %s", sym, e)
+        return None
+    if not f:
+        return None
+    h = f["h"]
+    return {"h": h, "line": f["line"][:h], "band": f["band"][:h], "model": f["model"], "label": f["label"],
+            "dir_check": f["dir_check"], "strength": strength(f)}

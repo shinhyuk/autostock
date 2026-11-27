@@ -56,9 +56,10 @@ function draw(){if(!D||!D.bars||!D.bars.length)return;const dpr=devicePixelRatio
  if(F&&R){const x0=X(R-1),c0=s[R-1][4],col=css('--vwap');
   ctx.beginPath();ctx.moveTo(x0,Y(c0));FCB.forEach((q,j)=>ctx.lineTo(X(R+j),Y(q[1])));for(let j=FCB.length-1;j>=0;j--)ctx.lineTo(X(R+j),Y(FCB[j][0]));ctx.closePath();
   ctx.fillStyle=col;ctx.globalAlpha=.1;ctx.fill();ctx.globalAlpha=1;
-  ctx.strokeStyle=col;ctx.lineWidth=2.2;ctx.beginPath();ctx.moveTo(x0,Y(c0));FCL.forEach((v,j)=>ctx.lineTo(X(R+j),Y(v)));ctx.stroke();ctx.lineWidth=1;
+  const st=D.fc.strength||0;ctx.strokeStyle=col;ctx.lineWidth=1.2+2.8*st;ctx.globalAlpha=.3+.7*st;if(!st)ctx.setLineDash([4,3]);
+  ctx.beginPath();ctx.moveTo(x0,Y(c0));FCL.forEach((v,j)=>ctx.lineTo(X(R+j),Y(v)));ctx.stroke();ctx.lineWidth=1;ctx.globalAlpha=1;ctx.setLineDash([]);
   ctx.strokeStyle=line;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(x0+bw/2,0);ctx.lineTo(x0+bw/2,H-pb);ctx.stroke();ctx.setLineDash([]);
-  ctx.fillStyle=col;ctx.font='bold 11px system-ui';ctx.fillText('예상 →',x0+bw,12);ctx.font='11px system-ui';lab(FCL[F-1],usd(FCL[F-1]),col)}
+  ctx.fillStyle=col;ctx.font='bold 11px system-ui';ctx.fillText(D.fc.model=='flat'?'예상: 방향 없음':'예상 (적중 '+Math.round(D.fc.dir_check)+'%) →',x0+bw,12);ctx.font='11px system-ui';lab(FCL[F-1],usd(FCL[F-1]),col)}
  const lc=s[R-1][4];ctx.strokeStyle=fg;ctx.globalAlpha=.4;ctx.beginPath();ctx.moveTo(0,Y(lc));ctx.lineTo(pw,Y(lc));ctx.stroke();ctx.globalAlpha=1;lab(lc,usd(lc),fg);
  ctx.fillStyle=mut;const day=tf=='1d'||tf=='1h';for(const i of [0,Math.floor((R-1)/2),R-1]){const t=s[i][0];const txt=day?kst(t,1):kst(t);const tw=ctx.measureText(txt).width;ctx.fillText(txt,Math.min(Math.max(X(i)-tw/2,0),pw-tw),H-5)}
  if(hov!=null&&hov>=0&&hov<pw&&Math.floor(hov/bw)<R){const i=Math.floor(hov/bw),b=s[i];ctx.strokeStyle=mut;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(X(i),0);ctx.lineTo(X(i),H-pb);ctx.stroke();ctx.setLineDash([]);

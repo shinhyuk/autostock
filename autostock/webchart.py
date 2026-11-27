@@ -12,11 +12,13 @@ async function load(){try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&
 window.chartReload=load;
 function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
  if(b.length<2){msg.textContent=(D&&D.error)?'차트를 불러오지 못했습니다: '+D.error:'표시할 시세가 아직 없습니다 (봇이 1분봉을 모으는 중)';tip.style.display='none';return}
- const n=b.length,W=box.clientWidth,H=320,pl=4,pr=58,pt=10,ph=220,vt=pt+ph+8,vh=50,pb=22,pw=W-pl-pr,step=pw/n;
+ const FC=(D.fc&&D.fc.line&&D.fc.line.length)?D.fc:null,F=FC?FC.line.length:0;
+ const n=b.length,W=box.clientWidth,H=320,pl=4,pr=58,pt=10,ph=220,vt=pt+ph+8,vh=50,pb=22,pw=W-pl-pr,step=pw/(n+F);
  const mk=D.marks||[],ln=D.lines||[],rg=D.range||[],vw=D.vwap||[];
  let lo=Math.min(...b.map(x=>x[3])),hi=Math.max(...b.map(x=>x[2]));
  const pad=(hi-lo)*.06||.05;const inR=v=>v>=lo-(hi-lo)*.6&&v<=hi+(hi-lo)*.6;
  for(const v of [...rg,...ln.filter(l=>l.k!='take'||inR(l.v)).map(l=>l.v),...mk.map(m=>m.p)])if(inR(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}
+ if(FC){lo=Math.min(lo,...FC.line);hi=Math.max(hi,...FC.line)}
  lo-=pad;hi+=pad;const X=i=>pl+(i+.5)*step,Y=v=>pt+(hi-v)/(hi-lo)*ph,idx=t=>{let k=0;for(let i=0;i<n;i++){if(b[i][0]<=t)k=i;else break}return k};
  const s=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':sym+' 1분봉 차트와 매매 지점'});
  const tags=[...ln.filter(l=>inR(l.v)).map(l=>Y(l.v)),Y(b[n-1][4])];
@@ -46,6 +48,11 @@ function draw(){box.innerHTML='';const b=(D&&D.bars)||[];
    el('text',{x:pl+4,y:lab[k].ty,'font-size':11,'font-weight':600,fill:LC[l.k],stroke:'var(--card)','stroke-width':3,'paint-order':'stroke'},l.l))}
  for(const m of mk){const i=idx(m.t),cx=X(i),buy=m.k=='buy',cy=buy?Y(b[i][3])+12:Y(b[i][2])-12,d=buy?`M${cx} ${cy-7}L${cx+7} ${cy+5}L${cx-7} ${cy+5}Z`:`M${cx} ${cy+7}L${cx+7} ${cy-5}L${cx-7} ${cy-5}Z`;
   s.append(el('line',{x1:cx,x2:cx,y1:Y(m.p),y2:cy,stroke:buy?'var(--up)':'var(--dn)','stroke-width':1,opacity:.6}),el('path',{d,fill:buy?'var(--up)':'var(--dn)',stroke:'var(--card)','stroke-width':2,'stroke-linejoin':'round'}))}
+ if(FC){const st=FC.strength||0,col='var(--vwap)',x0=X(n-1),c0=b[n-1][4];
+  const band='M'+x0+' '+Y(c0)+FC.band.map((q,j)=>'L'+X(n+j)+' '+Y(q[1])).join('')+FC.band.slice().reverse().map((q,j)=>'L'+X(n+F-1-j)+' '+Y(q[0])).join('')+'Z';
+  s.append(el('path',{d:band,fill:col,opacity:.05+.1*st}));
+  s.append(el('path',{d:'M'+x0+' '+Y(c0)+FC.line.map((v,j)=>'L'+X(n+j)+' '+Y(v)).join(''),fill:'none',stroke:col,'stroke-width':1.2+2.3*st,opacity:.3+.7*st,'stroke-dasharray':st>0?'':'4 3'}));
+  const ly=Y(FC.line[F-1]),up=FC.line[F-1]>=c0;s.append(el('text',{x:X(n+F-1),y:up?ly-8:ly+16,'text-anchor':'end','font-size':11,'font-weight':700,fill:col,opacity:.5+.5*st,stroke:'var(--card)','stroke-width':3,'paint-order':'stroke'},FC.model=='flat'?'예상: 방향 없음':`예상 ${Math.round(FC.dir_check)}%`))}
  const L=b[n-1];s.append(el('line',{x1:pl,x2:W-pr,y1:Y(L[4]),y2:Y(L[4]),stroke:'var(--fg)','stroke-width':1,opacity:.35}),el('rect',{x:W-pr+1,y:Y(L[4])-8,width:pr-2,height:16,rx:3,fill:'var(--fg)'}),el('text',{x:W-pr+5,y:Y(L[4])+4,'font-size':10.5,fill:'var(--card)','font-weight':700},usd(L[4])));
  if(hv!=null){const i=Math.min(n-1,Math.max(0,Math.floor((hv-pl)/step))),[t,o,h,l,c,v]=b[i],cx=X(i);
   s.append(el('line',{x1:cx,x2:cx,y1:pt,y2:vt+vh,stroke:'var(--mut)','stroke-width':1,'stroke-dasharray':'3 3'}),el('line',{x1:pl,x2:W-pr,y1:Y(c),y2:Y(c),stroke:'var(--mut)','stroke-width':1,'stroke-dasharray':'3 3'}));
