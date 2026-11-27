@@ -338,11 +338,7 @@ def forecast(b: list[list], tf: str) -> dict | None:
     key = (tf, len(b) // 50, round(b[0][4], 4))
     hit = _fc_cache.get(key)
     if hit and time.time() - hit[0] < 600:                   # 방식 고르기는 무거우니 10분 동안 재사용
-        mdl, w, vol, chk, momd = hit[1]
-        i = len(b) - 1
-        path = [[math.exp(x) for x in _cone(lc, i, k, mdl, widen=w, vol=vol)] for k in range(1, h + 1)]
-        return {"h": h, "model": mdl, "label": MODELS[mdl], "widen": w, "vol": vol, "path": [p for p in path if p],
-                "check": chk, "mom_dir": momd}
+        return _fc_out(lc, h, *hit[1])
     cut = len(b) - T                                        # 여기까지로 고르고, 이후 T 번으로 확인
     best, score = None, None
     for mdl in MODELS:
@@ -358,9 +354,28 @@ def forecast(b: list[list], tf: str) -> dict | None:
         return None
     mdl, w, vol = best
     chk = validate(b, h, T, w, vol, (mdl,)).get(mdl)          # 고를 때 안 본 마지막 T 번
-    mom = validate(b, h, T, 1.0, False, ("mom",)).get("mom")    # 참고: '최근 흐름이 이어진다'의 방향 적중
-    _fc_cache[key] = (time.time(), (mdl, w, vol, chk, mom and mom["dir"]))
-    i = len(b) - 1
-    path = [[math.exp(x) for x in _cone(lc, i, k, mdl, widen=w, vol=vol)] for k in range(1, h + 1)]
-    return {"h": h, "model": mdl, "label": MODELS[mdl], "widen": w, "vol": vol, "path": [p for p in path if p],
-            "check": chk, "mom_dir": mom and mom["dir"]}
+    # 예상선(방향): '흐름 이어짐'과 '되돌림' 중 고를 때 안 본 구간에서 방향을 더 잘 맞힌 쪽, 둘 다 55% 미만이면 평평하게
+    dirs = {m: validate(b, h, T, 1.0, False, (m,), upto=cut).get(m, {}).get("dir") or 0 for m in ("mom", "rev")}
+    lm = max(dirs, key=dirs.get)
+    lm = lm if dirs[lm] >= 55 else "flat"
+    lchk = validate(b, h, T, 1.0, False, (lm,)).get(lm) if lm != "flat" else None
+    args = (mdl, w, vol, chk, lm, dirs.get(lm), lchk and lchk["dir"])
+    _fc_cache[key] = (time.time(), args)
+    return _fc_out(lc, h, *args)
+
+
+def _fc_out(lc, h, mdl, w, vol, chk, lm, dir_pick, dir_check) -> dict:
+    """예상선(lm 방식의 가운데 값)과 좁은 50% 범위를 기본 h 봉의 3배까지. 끌어서 더 먼 미래를 볼 수 있게."""
+    i = len(lc) - 1
+    line, band = [], []
+    d = _drift(lc, i, lm) if lm != "flat" else 0.0
+    cap = 10 if lm == "rev" else h                          # 검증한 거리(h 봉)까지만 기울이고 그 뒤는 평평하게
+    for k in range(1, 3 * h + 1):
+        q = _cone(lc, i, k, mdl, widen=w, vol=vol)
+        if not q:
+            continue
+        mid = lc[i] + d * min(k, cap)                       # 매끈한 예상선 (분위수 잡음 없이)
+        line.append(math.exp(mid))
+        band.append([math.exp(mid + q[1] - q[2]), math.exp(mid + q[3] - q[2])])
+    return {"h": h, "line": line, "band": band, "model": lm, "label": MODELS[lm],
+            "check": chk, "dir_check": dir_check, "dir_pick": dir_pick}

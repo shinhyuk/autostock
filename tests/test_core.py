@@ -1541,7 +1541,8 @@ def test_forecast_cone_is_validated_on_unseen_data():
         p *= math.exp(random.gauss(0, 0.004))
         b.append([i * 300_000, p, p * 1.001, p * 0.999, p, 1])
     f = board.forecast(b, "5m")
-    assert f and f["h"] == 24 and len(f["path"]) == 24
-    assert all(q[0] <= q[1] <= q[2] <= q[3] <= q[4] for q in f["path"])
-    assert f["path"][-1][4] - f["path"][-1][0] > f["path"][0][4] - f["path"][0][0]    # 멀수록 넓어짐
+    assert f and f["h"] == 24 and len(f["line"]) == 72 and len(f["band"]) == 72                # 끌어서 3배까지
+    assert all(lo <= v <= hi for v, (lo, hi) in zip(f["line"], f["band"]))
+    assert f["band"][-1][1] - f["band"][-1][0] > f["band"][0][1] - f["band"][0][0]          # 멀수록 넓어짐
+    assert f["model"] in ("flat", "mom", "rev")
     assert f["check"]["cov80"] >= 60                                                   # 고를 때 안 본 구간에서도 범위가 대체로 맞아야
