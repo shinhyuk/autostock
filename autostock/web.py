@@ -2,7 +2,7 @@
 
     python -m autostock.web        # http://<서버IP>:8080/?k=<WEB_TOKEN>
 
-주소의 k 값(.env 의 WEB_TOKEN)이 맞아야 열린다. 주문/설정을 바꾸는 기능은 없다.
+주소의 k 값(.env 의 WEB_TOKEN)이 맞아야 열린다. 주문 기능은 없고, 바꿀 수 있는 설정은 실계좌 장외 거래 켜기/끄기 하나뿐이다.
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ th{color:var(--mut);font-weight:600;font-size:12px}td.r,th.r{text-align:right}tr
 .pbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:4px 0 2px;background:var(--track)}.pbar i{display:block}.pbar .u{background:var(--up)}.pbar .d{background:var(--dn)}
 .verdict{margin-top:14px;padding:12px;border-radius:10px;border:1.5px solid var(--line)}.verdict.vu{border-color:var(--up)}.verdict.vd{border-color:var(--dn)}.verdict b{display:block;font-size:16px;margin-bottom:2px}.verdict.vu b{color:var(--up)}.verdict.vd b{color:var(--dn)}
 table.plan{margin-top:10px}table.plan td,table.plan th{padding:7px 4px}
-#bc{width:100%;height:380px;display:block;touch-action:none;cursor:grab}.zone{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:13.5px;font-variant-numeric:tabular-nums}.zone.zb{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent)}.zone.zs{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.lgs,.lgr,.lgb{display:inline-block;width:14px;border-top:2px dashed;margin-right:5px;vertical-align:middle}.lgs{border-color:var(--warn)}.lgr{border-color:var(--ok)}.lgb{border-color:var(--warn);border-top-style:dotted}.brow{position:relative;display:flex;justify-content:space-between;padding:4px 8px;font-size:13.5px;font-variant-numeric:tabular-nums}.brow i{position:absolute;right:0;top:2px;bottom:2px;opacity:.15}.brow.ask span:first-child{color:var(--dn)}.brow.ask i{background:var(--dn)}.brow.bid span:first-child{color:var(--up)}.brow.bid i{background:var(--up)}.brow span{position:relative}.bhead{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);padding:0 8px 4px}.bmid{text-align:center;font-size:12px;color:var(--mut);padding:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
+#bc{width:100%;height:380px;display:block;touch-action:none;cursor:grab}.zone{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:13.5px;font-variant-numeric:tabular-nums}.zone.zb{border-left:4px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent)}.zone.zs{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.lgs,.lgr,.lgb{display:inline-block;width:14px;border-top:2px dashed;margin-right:5px;vertical-align:middle}.lgs{border-color:var(--warn)}.lgr{border-color:var(--ok)}.lgb{border-color:var(--warn);border-top-style:dotted}.brow{position:relative;display:flex;justify-content:space-between;padding:4px 8px;font-size:13.5px;font-variant-numeric:tabular-nums}.brow i{position:absolute;right:0;top:2px;bottom:2px;opacity:.15}.brow.ask span:first-child{color:var(--dn)}.brow.ask i{background:var(--dn)}.brow.bid span:first-child{color:var(--up)}.brow.bid i{background:var(--up)}.brow span{position:relative}.bhead{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);padding:0 8px 4px}.bmid{text-align:center;font-size:12px;color:var(--mut);padding:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.tgl{font:inherit;font-weight:700;padding:8px 18px;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:var(--bg);cursor:pointer}tr.cur td{font-weight:700}details summary{cursor:pointer;font-size:13px;color:var(--mut);margin-top:16px}small{font-size:11.5px}h3{font-size:13px;color:var(--mut);margin:18px 0 4px;font-weight:600}.seg .mutt{font-size:13px;margin-right:2px}
 .tu{color:var(--up)}.td{color:var(--dn)}.mutt{color:var(--mut)}.warnt{color:var(--warn)}.pad{padding:0 4px}
 .hold{margin-bottom:10px}.pnlbig{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}.pnlbig small{font-size:13px}
 dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:12px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
@@ -169,6 +169,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     out.append(_nav(token, mode, cfg.modes) + "</nav>")
     if mode != "paper":                               # 모의투자·실계좌: 증권사 실제 계좌 자산을 맨 위에
         out.append(_account_card(cfg, mode))
+        if mode == "live":
+            out.append(_ext_toggle(cfg, mode, token))
         out.append(_test_status(cfg, mode, events, live))
     else:
         if cfg.news_pick:
@@ -733,6 +735,25 @@ def _news_card(cfg) -> str:
     return "".join(out)
 
 
+def _ext_toggle(cfg, mode: str, token: str) -> str:
+    """장외(프리·애프터·주간거래) 매매 켜기/끄기. 켜면 정규장 밖에서는 시간외 고정 박스 규칙으로 매매."""
+    e = html.escape
+    on = any(x in cfg.sessions for x in config.EXT_SESSIONS)
+    ov = config.read_overrides(cfg.data_dir).get(mode, {}).get("ext_trading")
+    nxt = "off" if on else "on"
+    strat = {"box": "시간외 고정 박스", "always": "항상 매매", "ai": "Claude 판단", "orb": "없음"}.get(cfg.ext_strategy, "시간외 고정 박스")
+    msg = ("정규장 밖에서도 실제 돈으로 매매합니다. 시간외에는 꾸준히 이긴 규칙이 없었고 호가 차이가 넓습니다. 켤까요?"
+           if not on else "장외 매매를 끕니다. 보유 중이면 그 포지션이 정리된 뒤 꺼집니다.")
+    return (f"<section class='card' style='margin-top:10px'><div class=h style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
+            f"<div><b>장외 거래 (프리·애프터·주간거래)</b><div class=note style='margin-top:2px'>"
+            f"{'<b class=up>켜짐</b> · ' + e(strat) + ' 규칙으로 매매' if on else '<b class=mut>꺼짐</b> · 정규장(23:30~)만 매매'}"
+            f"{' · 페이지에서 설정함' if ov is not None else ''}</div></div>"
+            f"<form method=post action='/toggle?k={e(token)}&mode={e(mode)}&ext={nxt}' onsubmit=\"return confirm('{e(msg)}')\">"
+            f"<button class=tgl type=submit>{'끄기' if on else '켜기'}</button></form></div>"
+            "<div class=note>켜면 1분 안에 봇이 반영합니다 (재시작 없음). 시간외에는 위·아래 경계에 2번씩 닿은 박스 아래쪽이면 SOXL, 위쪽이면 SOXS 를 사고, "
+            "목표는 박스 반대쪽 80%, 손절은 경계 밖 10%, 각 시간대 마감 5분 전에 정리합니다.</div></section>")
+
+
 def _code_version() -> str:
     """서버에 깔린 코드 버전 (자동 업데이트가 적용됐는지 화면에서 확인용)."""
     import subprocess
@@ -893,6 +914,24 @@ def make_handler(token: str):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+
+        def do_POST(self):
+            """결과 페이지에서 바꿀 수 있는 유일한 설정: 실계좌 장외 거래 켜기/끄기."""
+            u = urlparse(self.path)
+            q = parse_qs(u.query)
+            if u.path != "/toggle" or not hmac.compare_digest(q.get("k", [""])[0], token):
+                self.send_error(404)
+                return
+            mode, ext = q.get("mode", [""])[0], q.get("ext", [""])[0]
+            if mode != "live" or ext not in ("on", "off"):
+                self.send_error(400)
+                return
+            load_dotenv(override=True)
+            cfg = config.load(mode)
+            config.write_override(cfg.data_dir, mode, "ext_trading", ext == "on")
+            self.send_response(303)
+            self.send_header("Location", f"/?k={token}&mode={mode}")
+            self.end_headers()
 
         def log_message(self, *a):       # 주소에 토큰이 있으므로 접근 로그를 남기지 않는다
             pass

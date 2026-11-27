@@ -1,6 +1,8 @@
 """환경변수(.env) 기반 설정."""
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 from dataclasses import dataclass
 
@@ -155,9 +157,46 @@ def load(mode: str | None = None) -> Settings:
     mode = mode or modes[0]
     _prefix = PREFIX.get(mode, "")
     try:
-        return _build(mode, modes)
+        return apply_overrides(_build(mode, modes))
     finally:
         _prefix = ""
+
+
+EXT_SESSIONS = ("pre", "post", "day")
+
+
+def overrides_path(data_dir: str) -> str:
+    return os.path.join(data_dir, "overrides.json")
+
+
+def read_overrides(data_dir: str) -> dict:
+    """결과 페이지에서 켜고 끄는 값 (모드별). 저장소 설정(deploy/settings) 위에 덮어쓴다."""
+    try:
+        with open(overrides_path(data_dir), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def write_override(data_dir: str, mode: str, key: str, value) -> None:
+    ov = read_overrides(data_dir)
+    ov.setdefault(mode, {})[key] = value
+    os.makedirs(data_dir, exist_ok=True)
+    tmp = overrides_path(data_dir) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(ov, f)
+    os.replace(tmp, overrides_path(data_dir))
+
+
+def apply_overrides(s: "Settings") -> "Settings":
+    """ext_trading=True 면 프리·애프터·주간거래도 매매(정규장 밖 전략이 없으면 시간외 고정 박스), False 면 정규장만."""
+    ext = read_overrides(s.data_dir).get(s.mode, {}).get("ext_trading")
+    if ext is True:
+        sess = tuple(dict.fromkeys(("regular",) + tuple(s.sessions) + EXT_SESSIONS))
+        return dataclasses.replace(s, sessions=sess, ext_strategy=s.ext_strategy or "box")
+    if ext is False:
+        return dataclasses.replace(s, sessions=tuple(x for x in s.sessions if x not in EXT_SESSIONS) or ("regular",))
+    return s
 
 
 def _build(mode: str, modes: tuple[str, ...]) -> Settings:

@@ -1469,3 +1469,44 @@ def test_chart_tab_appends_recent_kis_bars():
     extra = [[t0 + 5 * 300_000 + j * 60_000, 11, 11 + j * 0.1, 10.9, 11 + j * 0.1, 2] for j in range(7)]   # 그 뒤 증권사 1분봉 7개
     b, n = board.merge_recent(y, extra + [[t0, 1, 1, 1, 1, 1]], "5m")
     assert n == 2 and len(b) == 7 and b[5][2] == 11.4 and b[5][5] == 10 and b[6][4] == 11.6
+
+
+def test_live_ext_trading_toggle(tmp_path, monkeypatch, rig):
+    import threading, urllib.request, urllib.error
+    from http.server import ThreadingHTTPServer
+    from autostock import config, web, market_hours
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    base = dataclasses.replace(Settings(), data_dir=str(tmp_path), mode="live", sessions=("regular",), ext_strategy="")
+    assert config.apply_overrides(base).sessions == ("regular",)
+    config.write_override(str(tmp_path), "live", "ext_trading", True)
+    on = config.apply_overrides(base)
+    assert set(on.sessions) == {"regular", "pre", "post", "day"} and on.ext_strategy == "box"
+    page = web.render(dataclasses.replace(on, modes=("live",)), "live", "t")
+    assert "장외 거래 (프리·애프터·주간거래)" in page and "ext=off" in page
+    config.write_override(str(tmp_path), "live", "ext_trading", False)
+    assert config.apply_overrides(dataclasses.replace(base, sessions=("regular", "day"))).sessions == ("regular",)
+    # 엔진: 재시작 없이 반영, 보유 중이고 지금 세션이 꺼지면 미룸
+    e, m, _ = rig(mode="live")
+    monkeypatch.setattr(config, "load", lambda mode=None: dataclasses.replace(e.cfg, sessions=("regular", "pre", "post", "day"), ext_strategy="box"))
+    e._ov_mt = None
+    e._check_overrides(m.now)
+    assert "pre" in e.cfg.sessions and e.cfg.ext_strategy == "box" and "pre" in market_hours.ENABLED
+    # POST 로 켜기 (토큰 없으면 404)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler("tok_1234567890abcd"))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    monkeypatch.setattr(config, "load", lambda mode=None: dataclasses.replace(base, mode=mode or "live"))
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/toggle?k=bad&mode=live&ext=on", method="POST"))
+        assert False
+    except urllib.error.HTTPError as err:
+        assert err.code == 404
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k): return None
+    try:
+        urllib.request.build_opener(NoRedirect).open(urllib.request.Request(
+            f"http://127.0.0.1:{port}/toggle?k=tok_1234567890abcd&mode=live&ext=on", method="POST"))
+    except urllib.error.HTTPError as err:
+        assert err.code == 303
+    srv.shutdown()
+    assert config.read_overrides(str(tmp_path))["live"]["ext_trading"] is True

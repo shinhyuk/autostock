@@ -1,6 +1,7 @@
 """메인 루프: 빠른 주기로 손절/익절을 감시하고, 느린 주기로 AI에게 판단을 묻는다."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from . import indicators
+from . import config
 from .config import Settings
 from . import market_hours
 from .market_hours import CLOSE, is_open, minutes_since_open, minutes_to_close, now_et
@@ -69,7 +71,8 @@ class Engine:
         self.orb_status = ""
         self._orb_minute: datetime | None = None
         self._extbox_used: set = set()
-        self._news = None                             # 뉴스 판단 기록 (가상매매 실험)                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
+        self._news = None                             # 뉴스 판단 기록 (가상매매 실험)
+        self._ov_mt = None                            # 결과 페이지 설정(overrides.json) 마지막으로 본 시각                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
         self._noise_cp: tuple | None = None
         self.noise_book = None
         if cfg.noise:
@@ -1026,6 +1029,34 @@ class Engine:
             if self.noise_book.count(today, self.cfg.noise_every) < self.cfg.noise_lookback:
                 self.noise_book.bootstrap_yahoo(self.cfg.bull, self.cfg.noise_every)
 
+    def _check_overrides(self, now: datetime) -> None:
+        """결과 페이지에서 '장외 거래'를 켜고 끄면 재시작 없이 거래 세션을 바꾼다.
+        보유 중인데 그 세션이 꺼지면 포지션이 정리될 때까지 미룬다(관리 안 되는 포지션 방지)."""
+        try:
+            mt = os.path.getmtime(config.overrides_path(self.cfg.data_dir))
+        except OSError:
+            return
+        if mt == self._ov_mt:
+            return
+        try:
+            new = config.load(self.cfg.mode)
+        except Exception as e:
+            log.warning("설정 다시 읽기 실패: %s", e)
+            return
+        if (new.sessions, new.ext_strategy) == (self.cfg.sessions, self.cfg.ext_strategy):
+            self._ov_mt = mt
+            return
+        sess = market_hours.current(now)
+        if self.st.open and sess and sess.name not in new.sessions:
+            return
+        self._ov_mt = mt
+        self.cfg = dataclasses.replace(self.cfg, sessions=new.sessions, ext_strategy=new.ext_strategy)
+        market_hours.ENABLED = self.cfg.sessions
+        log.info("결과 페이지 설정 반영: 거래 세션 %s · 정규장 밖 전략 %s", ",".join(self.cfg.sessions),
+                 self.cfg.ext_strategy or "-")
+        self._activity(now, "장외 거래 " + ("켜짐" if any(x != "regular" for x in self.cfg.sessions) else "꺼짐")
+                       + f" (세션 {','.join(self.cfg.sessions)})")
+
     def run(self, max_minutes: float = 0, exit_when_closed: bool = False) -> str:
         """exit_when_closed: 장이 끝났거나 개장이 2시간 넘게 남았으면 "closed"를 반환하고 끝낸다.
         max_minutes: 실행 시간이 이만큼 지나면 "handoff"를 반환한다(다음 실행이 이어받음).
@@ -1039,6 +1070,7 @@ class Engine:
             now = self.clock()
             if max_minutes and (time.monotonic() - started) / 60 >= max_minutes:
                 return "handoff"
+            self._check_overrides(now)
             if not is_open(now):
                 if exit_when_closed and (now.weekday() >= 5 or now.time() >= CLOSE
                                          or minutes_since_open(now) < -120):
