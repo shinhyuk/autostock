@@ -10,6 +10,7 @@ function withPlan(d){if(!d)return d;const P=PLAN&&!PLAN.error&&!PLAN.none?PLAN:n
  if(P){const k=P.action=='BUY'?'buy':P.action=='AVOID'?'avoid':'wait';d.bands=[{lo:P.entry_lo,hi:P.entry_hi,k,l:(k=='buy'?'진입 ':k=='avoid'?'회피 ':'대기 ')+usd(P.entry_lo)+'~'+usd(P.entry_hi)}];
   d.lines=[{v:P.target,k:'take',l:'목표'},{v:P.stop,k:'stop',l:'손절'}]}return d}
 async function load(reset){const msg=document.getElementById('bmsg');try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=board&sym=${sym}&tf=${tf}`);const nd=await r.json();
+  if(nd.v&&window.APPV&&nd.v!==window.APPV){location.reload();return}   // 서버가 업데이트되면 새 화면으로
   if(nd.error&&!(nd.bars||[]).length){msg.textContent='차트를 불러오지 못했습니다: '+nd.error;return}
   D=withPlan(nd);C.set(D,reset);const L=D.bars.length,lt=D.bars[L-1][0],a=D.fc&&D.fc.acc;
   msg.textContent=`${sym} ${document.querySelector('[data-btf].on')?.textContent||tf} · 마지막 ${new Date(lt).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'})}${D.kis_bars?' (최근 '+D.kis_bars+'개는 한국투자증권)':''} · 드래그=시간 이동(왼쪽으로 끌면 더 먼 미래) · 두 손가락/휠=확대축소 · 두 번 누르면 최신`;

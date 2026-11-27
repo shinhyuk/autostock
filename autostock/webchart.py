@@ -6,6 +6,7 @@ try{span=+(localStorage.getItem('span')||120)}catch(e){}
 const msg=document.getElementById('cmsg');const iv=()=>span>0?span:400;
 const C=MakeChart(cv,{initN:iv()});
 async function load(reset){let D;try{const r=await fetch(`/data?k=${encodeURIComponent(K)}&mode=${M}&sym=${sym}&span=${span}${window.chartQ||''}`);D=await r.json()}catch(e){D={error:'연결 실패'}}
+ if(D.v&&window.APPV&&D.v!==window.APPV){location.reload();return}   // 서버가 업데이트되면 새 화면으로
  if(window.onChart)window.onChart(D);
  if(!D.bars||D.bars.length<2){msg.textContent=D.error?'차트를 불러오지 못했습니다: '+D.error:'표시할 시세가 아직 없습니다 (봇이 1분봉을 모으는 중)';return}
  C.set(D,reset,iv());const L=D.bars[D.bars.length-1],a=D.fc&&D.fc.acc;

@@ -50,7 +50,7 @@ function draw(){if(!D||!D.bars||D.bars.length<2){ctx.clearRect(0,0,cv.width,cv.h
   for(let k=fpts.length-1;k>=0;k--)ctx.lineTo(X(fpts[k][0]),Y(fpts[k][2][0]));ctx.closePath();ctx.fill();ctx.globalAlpha=.35+.65*st;ctx.strokeStyle=vw;ctx.lineWidth=1.4+2.6*st;if(!st)ctx.setLineDash([5,3]);
   ctx.beginPath();ctx.moveTo(X(x0),Y(fs[1]));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[1])));ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1;ctx.globalAlpha=1;
   const nowX=X(L-1)+bw/2;if(nowX<pw){ctx.strokeStyle=line;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(nowX,0);ctx.lineTo(nowX,H-pb);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=vw;ctx.font='bold 11px system-ui';
-   ctx.fillText((fc.model=='flat'?'예상: 방향 없음':'예상')+(fc.acc&&fc.acc.dir!=null&&fc.model!='flat'?' · 적중 '+Math.round(fc.acc.dir)+'%':''),nowX+4,14);ctx.font='11px system-ui'}}
+   ctx.fillText((fc.model=='flat'?'예상: 방향 없음':'예상')+(fc.acc&&Number.isFinite(fc.acc.dir)&&fc.model!='flat'?' · 적중 '+Math.round(fc.acc.dir)+'%':''),nowX+4,14);ctx.font='11px system-ui'}}
  // 가로선 (이름은 왼쪽, 가격표는 오른쪽 · 겹치면 비켜 그림)
  const tags=[];for(const ln of D.lines||[]){if(ln.v<lo||ln.v>hi)continue;const col=lc[ln.k]||mut,y=Y(ln.v);ctx.strokeStyle=col;ctx.lineWidth=1.4;ctx.setLineDash(ln.k=='entry'?[2,3]:['box','bxl','bxs'].includes(ln.k)?[2,4]:[6,4]);
   ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(pw,y);ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1;ctx.fillStyle=col;ctx.font='bold 11px system-ui';ctx.strokeStyle=card;ctx.lineWidth=3;ctx.strokeText(ln.l,4,y-4);ctx.fillText(ln.l,4,y-4);ctx.lineWidth=1;ctx.font='11px system-ui';tags.push([y,usd(ln.v),col])}

@@ -454,7 +454,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                f"{' · 애프터마켓 06:00~09:55' if 'post' in cfg.sessions else ''}"
                f"{' · 주간거래 10:00~17:15' if 'day' in cfg.sessions else ''}"
                f"{' · 프리마켓 18:00~23:25' if 'pre' in cfg.sessions else ''}</footer></main>"
-               f"<script>{CHART_CORE}</script><script>{CHART_JS}</script>")
+               f"{_appv()}<script>{CHART_CORE}</script><script>{CHART_JS}</script>")
     return "".join(out)
 
 
@@ -651,7 +651,7 @@ def render_board(cfg, token: str, now: datetime | None = None) -> str:
             "<footer>계획은 이 차트의 지지·저항대, 박스, 예상선(과거 방향 적중률), 지지·저항 근처 과거 반등률, 장기 추세(50·200일 평균, "
             "1년 고점 대비, 레버리지 감가)를 Claude 가 종합해, 'AI 계획 받기'를 누를 때 세웁니다. 참고용이며 수익을 보장하지 않습니다. "
             "봉은 야후 시세(시간외 포함)와 한국투자증권 최근 분봉입니다.</footer></main>"
-            f"<script>{CHART_CORE}</script><script>{BOARD_JS}</script>")
+            f"{_appv()}<script>{CHART_CORE}</script><script>{BOARD_JS}</script>")
 
 
 def render_ext(cfg, token: str, now: datetime | None = None) -> str:
@@ -688,7 +688,7 @@ def render_ext(cfg, token: str, now: datetime | None = None) -> str:
               + EXT_RESEARCH +
               f"<footer>{now:%m-%d %H:%M:%S} 기준 · 매도 목표·손절선은 권장 종목 차트에만 그립니다 · "
               "참고용 통계이며 수익을 보장하지 않습니다</footer></main>"
-              f"<script>{EXT_JS}</script><script>{CHART_CORE}</script><script>{CHART_JS}</script>")
+              f"{_appv()}<script>{EXT_JS}</script><script>{CHART_CORE}</script><script>{CHART_JS}</script>")
 
 
 def _news_outcome(cfg, ts_iso: str):
@@ -759,6 +759,17 @@ def _ext_toggle(cfg, mode: str, token: str) -> str:
 
 
 _ver: list = [0.0, ""]
+
+
+def _tag(data):
+    """화면 데이터에 서버 코드 버전을 붙인다. 화면은 버전이 바뀌면 스스로 새로고침해 옛 스크립트로 새 데이터를 읽지 않는다."""
+    if isinstance(data, dict):
+        data["v"] = _code_version()
+    return data
+
+
+def _appv() -> str:
+    return f"<script>window.APPV={json.dumps(_code_version())};</script>"
 
 
 def _code_version() -> str:
@@ -888,7 +899,7 @@ def make_handler(token: str):
                         tf = tf if tf in board.TF else "5m"
                         if q.get("ask", [""])[0] != "1":           # 버튼을 누르기 전에는 Claude 를 부르지 않는다
                             data = board.cached_plan(sym, tf) or {"none": True}
-                            body, ctype = json.dumps(data).encode(), "application/json"
+                            body, ctype = json.dumps(_tag(data)).encode(), "application/json"
                             self._send(body, ctype)
                             return
                         try:
@@ -908,7 +919,7 @@ def make_handler(token: str):
                             data = board.analyze(sym, tf if tf in board.TF else "5m", extra)
                         except Exception as ex:
                             data = {"error": f"{type(ex).__name__}: {ex}"[:160], "bars": []}
-                    body, ctype = json.dumps(data).encode(), "application/json"
+                    body, ctype = json.dumps(_tag(data)).encode(), "application/json"
                 else:
                     body, ctype = render_board(cfg, token).encode(), "text/html; charset=utf-8"
             elif mode == "ext":
@@ -920,7 +931,7 @@ def make_handler(token: str):
                     data = webdata.ext_chart(cfg, q.get("sym", [cfg.bull])[0], span, STORE, x)
                     adv = data.pop("advice", None)
                     data["advice_html"] = ext_card(adv, cfg) if adv else ""
-                    body, ctype = json.dumps(data).encode(), "application/json"
+                    body, ctype = json.dumps(_tag(data)).encode(), "application/json"
                 else:
                     body, ctype = render_ext(cfg, token).encode(), "text/html; charset=utf-8"
             elif u.path == "/data":
@@ -930,7 +941,7 @@ def make_handler(token: str):
                 except ValueError:
                     span = 120
                 data = webdata.chart(cfg, mode, q.get("sym", [cfg.bull])[0], span, STORE, state, live, events)
-                body = json.dumps(data).encode()
+                body = json.dumps(_tag(data)).encode()
                 ctype = "application/json"
             else:
                 body = render(cfg, mode, token).encode()
