@@ -60,6 +60,8 @@ LIVE__OPEN_FADE_STOP=2
 LIVE__OPEN_FADE_HOLD=120
 # 최근 10회 승률로 금액 조절 (research/probsize.py): 40% 미만 25% · 40~55% 절반 · 55% 이상 전액
 LIVE__RECENT_SIZE_N=10
+# 돌파는 주도주(NVDA·AVGO·AMD) 시가 대비 평균이 돌파 방향으로 1% 이상일 때만 (research/constfilter.py)
+LIVE__ORB_LEAD_MIN=1
 
 # 모의투자: 1000만원으로 SOXL/SOXS, 정규장만. (모든 탭: 매일 다시 채우지 않고 누적 손익을 반영한 자산으로 매매) 가상매매(기존 돌파 설정)와 나란히 비교하는 개선안:
 #  돌파(진입 마감 60분, 추적 손절 없음, 손절은 범위 중간값) + 범위 안 박스권 매매 (research/README.md)
