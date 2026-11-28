@@ -155,6 +155,36 @@ def _nav(token: str, mode: str, running) -> str:
     return "".join(f"<a{' class=on' if m == mode else ''} href='/?k={e(token)}&mode={m}'>{e(n)}</a>" for m, n in tabs)
 
 
+KIND_KO = {"fade": "개장 되돌림", "orb": "돌파", "box": "박스권"}
+
+
+def _signal_book(cfg, mode: str) -> str:
+    """신호 장부: 산 신호와 걸러서 안 산 신호의 '샀다면' 결과 비교."""
+    from . import signals as sigbook
+    e = html.escape
+    cls = lambda v: "up" if v > 0 else "dn" if v < 0 else "mut"
+    rs = sigbook.rows(cfg, mode)
+    if not rs:
+        return ""
+    tbl = ""
+    for x in sigbook.summary(rs):
+        avg = "" if x["avg"] is None else f"{x['avg']:+.2f}%"
+        win = "" if x["win"] is None else f"{x['win'] * 100:.0f}%"
+        tbl += (f"<tr><td>{KIND_KO.get(x['kind'], x['kind'])}</td><td>{'산 것' if x['taken'] else '거른 것'}</td>"
+                f"<td class=r>{x['n']} ({x['done']} 결과)</td><td class='r {cls(x['avg'] or 0)}'>{avg}</td><td class=r>{win}</td></tr>")
+    recent = "".join(
+        f"<div class=row><div class=t>{_kst(r['ts'], '%m-%d %H:%M')}</div><div class=a>"
+        f"<span class='tag {'buy' if r.get('taken') else ''}'>{'샀음' if r.get('taken') else '거름'}</span> "
+        f"{KIND_KO.get(r['kind'], r['kind'])} {e(r['symbol'])}"
+        + (f" · {e(r.get('why', ''))}" if r.get("why") else "")
+        + (f" · 샀다면 <b class={cls(r['res']['pct'])}>{r['res']['pct']:+.2f}%</b> ({e(r['res']['exit'])})" if r.get("res") else " · 결과 대기")
+        + "</div></div>" for r in rs[-15:][::-1])
+    return ("<details><summary>신호 장부 (산 것 vs 거른 것)</summary><table><tr><th>종류</th><th></th><th class=r>신호</th>"
+            "<th class=r>샀다면 평균</th><th class=r>승률</th></tr>" + tbl + "</table>"
+            "<div class=note>걸러서 안 산 신호도 '그때 샀다면' 결과(비용 0.6% 뺌)를 계산해, 필터가 실제로 손실을 막았는지 확인합니다.</div>"
+            f"<div class=feed>{recent}</div></details>")
+
+
 def cfg_paper():
     from . import config as _c
     return _c.load("paper")
@@ -388,6 +418,7 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                              f"<td class='r {cls(days[d][0])}'>{days[d][0] / total_usd * 100:+.2f}%</td><td class=r>{days[d][1]}</td>"
                              f"<td class=r>{days[d][2] / days[d][1] * 100:.0f}%</td></tr>" for d in sorted(days, reverse=True)[:60])
                    + "</table></details>")
+    out.append(_signal_book(cfg, mode))
     decisions = [x for x in events if x.get("kind") == "decision"][-25:][::-1]
     if decisions:
         rows = "".join(f"<div class=row><div class=t>{_kst(x['ts'])}</div><div><span class='tag {'buy' if x.get('action') == 'BUY' else 'sell' if x.get('action') in ('SELL', 'DISAGREE') else ''}'>"
@@ -964,6 +995,9 @@ def main() -> int:
     threading.Thread(target=webdata.collector, args=(STORE, threading.Event()), daemon=True).start()
     threading.Thread(target=webdata.account_refresher, args=(threading.Event(),), daemon=True).start()
     threading.Thread(target=webdata.book_recorder, args=(threading.Event(),), daemon=True).start()
+    from . import signals as sigbook
+    threading.Thread(target=sigbook.labeler, args=(STORE, lambda: config.load().modes, config.load, threading.Event()),
+                     daemon=True).start()
     board.REC = board.Recorder(config.load("paper").data_dir)
     threading.Thread(target=board.REC.loop, args=(threading.Event(), lambda s_: webdata.board_recent(config.load("paper"), STORE, s_)),
                      daemon=True).start()

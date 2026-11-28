@@ -1781,3 +1781,41 @@ def test_orb_lead_filter_blocks_weak_leaders(orb_rig):
     e.tick()
     buys = [x for x in map(json.loads, open(e.log_path)) if x.get("kind") == "buy"]
     assert e.st.open and e.st.open.symbol == "SOXL" and "주도주 평균 +1.6%" in buys[-1]["reason"]
+
+
+def test_signal_book_logs_filtered_and_taken_and_labels(tmp_path, orb_rig):
+    from autostock import signals as sb, web
+    e, m, _ = orb_rig(orb_lead_min=1.0, data_dir=str(tmp_path))
+    m.opens.update(AVGO=300.0, AMD=200.0); m.px.update(AVGO=300.6, AMD=200.2)
+    m.after, m.px["SOXL"] = [30.8], 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()                                                         # 주도주 약함 → 거름
+    m.px.update(AVGO=306.0, AMD=204.0); m.after.append(30.9); m.px["SOXL"] = 30.9
+    m.now += timedelta(minutes=1)
+    e.tick()                                                         # 산 것
+    rs = sb.rows(e.cfg, "paper")
+    assert [r["taken"] for r in rs] == [False, True] and "주도주 힘 부족" in rs[0]["why"] and rs[1]["lead"] > 1
+    # 결과: 거른 신호(30.8)는 그 뒤 31.5 를 찍고 마감 → 장 마감 정리, 손절·익절 없음
+    t0 = datetime.fromisoformat(rs[0]["ts"]).timestamp()
+    bars = [[(t0 + 60 * k) * 1000, 31.0, 31.5, 30.7, 31.2, 1] for k in range(1, 400)]
+    n = sb.label(e.cfg, "paper", lambda s, since: bars, now=t0 + 8 * 3600)
+    rs = sb.rows(e.cfg, "paper")
+    assert n == 2 and rs[0]["res"]["exit"] == "장 마감" and abs(rs[0]["res"]["pct"] - ((31.2 / 30.8 - 1) * 100 - 0.6)) < 1e-3
+    sm = {(x["kind"], x["taken"]): x for x in sb.summary(rs)}
+    assert sm[("orb", False)]["done"] == 1
+    html_ = web._signal_book(e.cfg, "paper")
+    assert "신호 장부" in html_ and "거른 것" in html_ and "샀다면" in html_
+    assert sb.label(e.cfg, "paper", lambda s, since: bars, now=t0 + 8 * 3600) == 0       # 두 번 붙이지 않음
+
+
+def test_signal_simulate_stop_take_and_pending():
+    from autostock import signals as sb
+    sig = {"ts": "2026-11-30T10:00:20-05:00", "kind": "fade", "symbol": "SOXL", "ref": 30.0, "stop_pct": 2.0, "take_pct": 3.0, "hold_min": 120}
+    t0 = datetime.fromisoformat("2026-11-30T10:01:00-05:00").timestamp() * 1000
+    up = [[t0 + k * 60000, 30.1, 31.0 if k == 5 else 30.2, 29.9, 30.1, 1] for k in range(10)]
+    assert sb.simulate(sig, up, t0 + 600000)["exit"] == "익절"
+    dn = [[t0 + k * 60000, 30.0, 30.1, 29.3 if k == 3 else 29.8, 29.9, 1] for k in range(10)]
+    r = sb.simulate(sig, dn, t0 + 600000)
+    assert r["exit"] == "손절" and abs(r["pct"] - (-2.0 - 0.6)) < 1e-9
+    flat = [[t0 + k * 60000, 30.0, 30.1, 29.9, 30.05, 1] for k in range(10)]
+    assert sb.simulate(sig, flat, t0 + 600000) is None                                     # 2시간이 아직 안 지남

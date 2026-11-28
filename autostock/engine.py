@@ -71,6 +71,7 @@ class Engine:
         self.orb_status = ""
         self._orb_minute: datetime | None = None
         self.fade_seen = ""                         # 개장 쏠림 되돌림을 이미 확인한 세션
+        self._sig_seen: dict = {}                    # 신호 장부: 같은 신호를 15분에 한 번만 적음
         self._extbox_used: set = set()
         self._news = None                             # 뉴스 판단 기록 (가상매매 실험)
         self._ov_mt = None                            # 결과 페이지 설정(overrides.json) 마지막으로 본 시각                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
@@ -556,9 +557,23 @@ class Engine:
         if self.st.halted:
             self.orb_status = f"종료 ({self.st.halted})"
             return
+        def orb_sig(sg_, why, taken=False, **feat):
+            """돌파 신호를 장부에 (걸러진 것도 '샀다면' 결과를 보려고)."""
+            sd_ = c.bull if sg_ > 0 else c.bear
+            if not sd_ or not bar:
+                return
+            mid_ = (o["hh"] + o["ll"]) / 2
+            sp = min(max(abs(bar.close / mid_ - 1) * 100, 0.5), 6.0) if c.orb_stop_mode == "mid" else c.orb_stop_pct
+            try:
+                ref_ = self.market.quote(sd_).last
+            except Exception:
+                return
+            self._signal(now, "orb", sd_, ref_, sp, c.orb_take_pct, taken, why, since=round(since), **feat)
         if c.vol_filter_min and o["vol5"] is not None and o["vol5"] < c.vol_filter_min:
             self.orb_status = (f"오늘 쉼: 5일 평균 변동폭 {o['vol5']:.1f}% < {c.vol_filter_min}% "
                                f"(조용한 장은 가짜 돌파가 많음)")
+            if bar and (bar.close > o["hh"] or bar.close < o["ll"]) and since <= c.orb_window_min:
+                orb_sig(1 if bar.close > o["hh"] else -1, f"조용한 장 쉼: 5일 변동 {o['vol5']:.1f}%")
             return
         if not bar or (now - bar.ts).total_seconds() > 240:
             self.orb_status = "시세 지연"
@@ -573,6 +588,8 @@ class Engine:
                 self.orb_status = "오늘 돌파 진입 마감" + (" · 박스권 종료(범위 이탈)" if c.box and o["broke"] else "")
             elif n_orb >= c.orb_max_trades:
                 self.orb_status = f"오늘 돌파 {c.orb_max_trades}회 모두 사용"
+                if sg:
+                    orb_sig(sg, f"돌파 횟수 소진: {c.orb_max_trades}회")
             else:
                 self.orb_status = "돌파 대기" + (" · 박스권 종료(범위 이탈)" if c.box and o["broke"] else "")
             return
@@ -588,14 +605,17 @@ class Engine:
                     lag.append(f"{p} {chg:+.2f}%")
         if lag:
             self.orb_status = f"{'상단' if sg > 0 else '하단'} 돌파했지만 동조 안 됨: {', '.join(lag)}"
+            orb_sig(sg, f"동조 안 됨: {', '.join(lag)}")
             return
-        lead_txt = ""
+        lead_txt, avg = "", None
         if c.orb_lead_min:                           # 주도주가 돌파 방향으로 충분히 움직였나 (약하면 가짜 돌파가 많음)
             ch = [(self.market.quote(p).last / o["peers"][p] - 1) * 100 for p in c.orb_lead_syms if o["peers"].get(p)]
             avg = sg * sum(ch) / len(ch) if ch else None
+        if c.orb_lead_min:
             if avg is None or avg < c.orb_lead_min:
                 self.orb_status = (f"{'상단' if sg > 0 else '하단'} 돌파했지만 주도주 힘 부족: "
                                    + (f"{'/'.join(c.orb_lead_syms)} 평균 {avg:+.2f}% < {c.orb_lead_min:.1f}%" if avg is not None else "시가 없음"))
+                orb_sig(sg, f"주도주 힘 부족: 평균 {avg:+.2f}%" if avg is not None else "주도주 시가 없음", lead=avg)
                 return
             lead_txt = f", 주도주 평균 {avg:+.1f}%"
         last = self.market.quote(side).last
@@ -610,6 +630,9 @@ class Engine:
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side,
                                       "reason": d.reason})
         self._enter(d, last, trail=c.orb_trail_pct, kind="orb")
+        took = bool(self.st.open and self.st.open.kind == "orb")
+        self._signal(now, "orb", side, last, stop_pct, c.orb_take_pct, took, "" if took else "주문 안 됨",
+                     since=round(since), lead=avg)
         if self.st.open:
             self.orb_status = "보유 중 (돌파)"
             self._ai_review(now)
@@ -628,7 +651,7 @@ class Engine:
             return True
         if self.fade_seen == key or since > c.open_fade_min + 3:
             return False
-        if self.st.open or self.st.halted or self._entries("fade"):
+        if self._entries("fade"):
             self.fade_seen = key
             return False
         end = sess.open + timedelta(minutes=c.open_fade_min)
@@ -652,15 +675,43 @@ class Engine:
         if not side:
             return False
         last = self.market.quote(side).last
+        busy = "보유 중" if self.st.open else f"중단: {self.st.halted}" if self.st.halted else ""
+        if busy:
+            self._signal(now, "fade", side, last, stop_pct, take_pct, False, busy, c.open_fade_hold, mv10=mv)
+            return False
         d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100, stop_loss_pct=stop_pct, take_profit_pct=take_pct,
                      reason=f"개장 {c.open_fade_min}분 {c.bull} {mv:+.1f}% 쏠림 → 되돌림 (목표 +{take_pct:.1f}%, "
                             f"손절 -{stop_pct:.1f}%, 최대 {c.open_fade_hold}분)")
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
         self._enter(d, last, trail=0.0, kind="fade")
-        if self.st.open:
+        took = bool(self.st.open and self.st.open.kind == "fade")
+        self._signal(now, "fade", side, last, stop_pct, take_pct, took, "" if took else "주문 안 됨", c.open_fade_hold, mv10=mv)
+        if took:
             self.orb_status = "보유 중 (개장 쏠림 되돌림)"
             return True
         return False
+
+    # ── 신호 장부 ───────────────────────────────────────────
+    def _signal(self, now: datetime, kind: str, sym: str, ref: float | None, stop_pct: float, take_pct: float,
+                taken: bool, why: str = "", hold_min: float = 0, **feat) -> None:
+        """산 신호와 걸러서 안 산 신호를 모두 적는다 (web 이 나중에 '샀다면' 결과를 붙인다: autostock/signals.py)."""
+        if not sym or not ref:
+            return
+        k = (kind, sym, bool(taken), why.split(":")[0][:30])
+        last = self._sig_seen.get(k)
+        if last is not None and (now - last).total_seconds() < 900:
+            return
+        self._sig_seen[k] = now
+        row = {"ts": now.isoformat(), "kind": kind, "symbol": sym, "ref": round(float(ref), 4),
+               "stop_pct": round(float(stop_pct), 3), "take_pct": round(float(take_pct), 3), "hold_min": hold_min or None,
+               "taken": bool(taken), "why": why,
+               **{a: (round(b, 4) if isinstance(b, float) else b) for a, b in feat.items() if b is not None}}
+        try:
+            os.makedirs(self.cfg.data_dir, exist_ok=True)
+            with open(os.path.join(self.cfg.data_dir, f"signals_{self.cfg.mode}.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     # ── 변동성 필터 자료 ────────────────────────────────────
     def _ranges_path(self) -> str:
@@ -971,6 +1022,14 @@ class Engine:
             self.orb_status = f"돌파 대기 · 박스권 경계 대기 (아래 ${ll + c.box_zone * w:.2f} 이하 / 위 ${hh - c.box_zone * w:.2f} 이상)"
             return
         sg = 1 if side == c.bull else -1
+        ref = bar.close
+        b_stop = min(max(abs(stop_lvl / ref - 1) * 100, 0.3), 6.0)
+        b_take = abs(take_lvl / ref - 1) * 100
+        def box_sig(why, taken=False):
+            try:
+                self._signal(now, "box", side, self.market.quote(side).last, b_stop, b_take, taken, why, width=width)
+            except Exception:
+                pass
         if c.box_peer_max:                           # 시장 전체가 반대로 가는 날의 역추세 매수를 피한다
             against = []
             for p, p0 in o["peers"].items():
@@ -980,19 +1039,22 @@ class Engine:
                         against.append(f"{p} {chg:+.2f}%")
             if against:
                 self.orb_status = f"돌파 대기 · 박스권 {side} 신호지만 동조 종목이 반대로 움직임: {', '.join(against)}"
+                box_sig(f"동조 종목 반대: {', '.join(against)}")
                 return
         if c.box_gap_max and o.get("gap") is not None and sg * o["gap"] < -c.box_gap_max:
             self.orb_status = f"돌파 대기 · 박스권 {side} 신호지만 개장 갭 {o['gap']:+.1f}% 와 반대 방향"
+            box_sig(f"갭 반대: {o['gap']:+.1f}%")
             return
-        ref = bar.close
         d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
-                     stop_loss_pct=min(max(abs(stop_lvl / ref - 1) * 100, 0.3), 6.0),
-                     take_profit_pct=abs(take_lvl / ref - 1) * 100,
+                     stop_loss_pct=b_stop,
+                     take_profit_pct=b_take,
                      reason=f"박스권 {'아래' if side == c.bull else '위'} 경계 ${ll if side == c.bull else hh:.2f} 근처에서 "
                             f"{'반등' if side == c.bull else '반락'} (봉 ${bar.open:.2f}→${bar.close:.2f}), "
                             f"목표 ${take_lvl:.2f} · 손절 ${stop_lvl:.2f} ({c.bull} 기준)")
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
         self._enter(d, self.market.quote(side).last, trail=0, kind="box")
+        took = bool(self.st.open and self.st.open.kind == "box")
+        box_sig("" if took else "주문 안 됨", took)
         if self.st.open:
             self.orb_status = "보유 중 (박스권)"
 
