@@ -296,6 +296,26 @@ class KISBroker:
             raise KISError(f"자산 응답에 값이 없음: {list(o3)[:10]}")
         return out
 
+    def realized(self, start: str, end: str) -> dict:
+        """증권사가 계산한 기간 실현손익 (해외주식 기간손익, 실전 전용). 날짜·종목별 원화 손익과 합계.
+        start/end: YYYYMMDD. 증권사 화면의 '실현손익'과 같은 숫자를 보여주기 위해 쓴다."""
+        if self.v != "T":
+            raise KISError("모의투자는 기간손익 조회를 지원하지 않음")
+        rows = []
+        j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-period-profit", "TTTS3039R",
+                        {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "OVRS_EXCG_CD": "", "NATN_CD": "", "CRCY_CD": "",
+                         "PDNO": "", "INQR_STRT_DT": start, "INQR_END_DT": end, "WCRC_FRCR_DVSN_CD": "02",
+                         "CTX_AREA_FK200": "", "CTX_AREA_NK200": ""})
+        for r in j.get("output1") or []:                    # 한 달 안쪽이면 한 번에 다 온다 (다음 쪽은 받지 않음)
+            rows.append({"day": (r.get("trad_day") or "").strip(), "symbol": (r.get("ovrs_pdno") or "").strip(),
+                         "qty": int(_num(r.get("slcl_qty"))), "krw": _num(r.get("ovrs_rlzt_pfls_amt")), "pct": _num(r.get("pftrt")),
+                         "fee": _num(r.get("stck_sll_tlex"))})
+        o2 = j.get("output2") or {}
+        if isinstance(o2, list):
+            o2 = o2[0] if o2 else {}
+        total = _num(o2.get("ovrs_rlzt_pfls_tot_amt")) if o2.get("ovrs_rlzt_pfls_tot_amt") not in (None, "") else sum(r["krw"] for r in rows)
+        return {"rows": rows, "total_krw": total, "start": start, "end": end}
+
     def buying_power(self, symbol: str, price: float) -> float | None:
         """주문 가능 외화 금액(USD). 응답 항목을 확인하지 못하면 None."""
         j = self.c.call("GET", "/uapi/overseas-stock/v1/trading/inquire-psamount", self.v + "TTS3007R",

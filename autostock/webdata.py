@@ -6,7 +6,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import config, extbox, market_hours
 
@@ -14,6 +14,7 @@ log = logging.getLogger("web")
 _kis_lock = threading.Lock()          # 페이지 요청과 백그라운드 수집이 KIS 클라이언트를 같이 쓰므로 직렬화
 _clients: dict = {}
 _acct_cache: dict = {}
+_realized_cache: dict = {}
 
 
 def read(cfg, mode: str):
@@ -141,6 +142,16 @@ def _fetch_account(cfg, mode: str) -> dict:
             except Exception as e:                # 계좌 총자산도 부가 정보
                 log.info("계좌 자산 조회 실패: %s", e)
                 summary = {"error": f"{type(e).__name__}: {e}"[:160]}
+            realized = _realized_cache.get(mode)
+            if creds.env == "real" and (not realized or time.time() - realized.get("at", 0) > 300):
+                try:                                  # 증권사가 계산한 실현손익 (5분마다)
+                    now_ = datetime.now()
+                    realized = {**br.realized((now_ - timedelta(days=90)).strftime("%Y%m%d"), now_.strftime("%Y%m%d")),
+                                "at": time.time()}
+                except Exception as e:
+                    log.info("실현손익 조회 실패: %s", e)
+                    realized = {"error": f"{type(e).__name__}: {e}"[:160], "at": time.time()}
+                _realized_cache[mode] = realized
         finally:
             _kis_lock.release()
         return {"source": "증권사 잔고 (한국투자증권)", "holdings": holds, "cash": cash, "summary": summary, "at": time.time()}

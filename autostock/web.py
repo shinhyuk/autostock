@@ -160,6 +160,10 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     now = now or datetime.now(KST)
     state, events, live = _read(cfg, mode)
     fx = cfg.usdkrw
+    if mode != "paper":                               # 실계좌·모의투자: 증권사가 쓰는 오늘 환율로 원화 환산
+        fx = (((webdata._acct_cache.get(mode) or {}).get("summary") or {}).get("usd_rate")) or fx
+    real = webdata._realized_cache.get(mode) if mode != "paper" else None
+    real = real if real and not real.get("error") and real.get("rows") is not None else None
 
     def won(v: float, sign: bool = True) -> str:
         return f"{v * fx:+,.0f}원" if sign else f"{v * fx:,.0f}원"
@@ -302,8 +306,13 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
         done = [t for t in trips if t["pnl"] is not None]
         today = [t for t in trips if (s.get("date") or "")[:10] and t["sell_ts"][:10] == (s.get("date") or "")[:10]]
         cum = sum(t["pnl"] for t in done)
-        out.append(f"<h2>거래 <span class=hsub>오늘 {len(today)} · 전체 {len(trips)} · 합계 "
-                   f"<b class={cls(cum)}>{won(cum)}</b> (총액 대비 {cum / total_usd * 100:+.2f}%)</span></h2><section class='card feed'>")
+        if real:                                      # 합계는 증권사가 계산한 실현손익 (수수료·환율이 실제와 같음)
+            rk = real["total_krw"]
+            out.append(f"<h2>거래 <span class=hsub>오늘 {len(today)} · 전체 {len(trips)} · 실현손익(증권사) "
+                       f"<b class={cls(rk)}>{rk:+,.0f}원</b> (총액 대비 {rk / (total_usd * fx) * 100:+.2f}%)</span></h2><section class='card feed'>")
+        else:
+            out.append(f"<h2>거래 <span class=hsub>오늘 {len(today)} · 전체 {len(trips)} · 합계 "
+                       f"<b class={cls(cum)}>{won(cum)}</b> (총액 대비 {cum / total_usd * 100:+.2f}%)</span></h2><section class='card feed'>")
         for t in trips[-30:][::-1]:
             p = t["pnl"]
             tp = p / total_usd * 100 if p is not None and total_usd else None
@@ -348,7 +357,20 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                    + "".join(f"<tr><td>{market_hours.LABEL[x]}</td><td class='r {cls(by[x][0])}'>{won(by[x][0])}</td><td class=r>{by[x][1]}</td>"
                              f"<td class=r>{by[x][2] / by[x][1] * 100:.0f}%</td></tr>" for x in ("regular", "pre", "post", "day") if x in by)
                    + "</table></details>")
-    if trips:
+    if real and real["rows"]:
+        kd = defaultdict(lambda: [0.0, 0, defaultdict(float)])
+        for r in real["rows"]:
+            d = kd[r["day"]]
+            d[0] += r["krw"]
+            d[1] += 1
+            d[2][r["symbol"]] += r["krw"]
+        out.append("<details open><summary>일별 실현손익 (증권사, 미국 날짜)</summary><table><tr><th>날짜</th><th class=r>손익</th><th class=r>총액 대비</th><th>종목별</th></tr>"
+                   + "".join(f"<tr><td>{e(d[4:6] + '-' + d[6:8])}</td><td class='r {cls(kd[d][0])}'>{kd[d][0]:+,.0f}원</td>"
+                             f"<td class='r {cls(kd[d][0])}'>{kd[d][0] / (total_usd * fx) * 100:+.2f}%</td>"
+                             f"<td class=mutt style='font-size:12.5px'>{' · '.join(f'{k} {v:+,.0f}' for k, v in kd[d][2].items())}</td></tr>"
+                             for d in sorted(kd, reverse=True))
+                   + "</table><div class=note>한국투자증권 '실현손익'과 같은 값입니다 (실제 수수료·환율). 아래 거래별 금액은 봇 기록으로 계산해 조금 다를 수 있습니다.</div></details>")
+    elif trips:
         days = defaultdict(lambda: [0.0, 0, 0])
         for t in trips:
             if t["pnl"] is not None:

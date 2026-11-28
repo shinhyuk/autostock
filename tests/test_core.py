@@ -1647,3 +1647,34 @@ def test_trades_show_pnl_against_account_total(tmp_path):
     webdata._acct_cache.clear()
     assert "-67,718원" in page and "총액 -0.56%" in page                                    # 48.37달러 × 1400 / 1200만원
     assert "<details><summary>전략" in page and "합계" in page
+
+
+def test_page_shows_broker_realized_pnl_and_real_fx(tmp_path):
+    from autostock import web, webdata
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), modes=("live",), capital_krw=2_000_000, usdkrw=1400)
+    ev = [{"ts": "2026-11-25T09:58:00-05:00", "kind": "buy", "symbol": "SOXL", "qty": 28, "price": 35.18},
+          {"ts": "2026-11-25T10:07:00-05:00", "kind": "sell", "symbol": "SOXL", "qty": 28, "price": 33.62, "pnl_usd": -48.37, "reason": "손절"}]
+    with open(tmp_path / "journal_live.jsonl", "w") as f:
+        f.write("\n".join(json.dumps(x) for x in ev) + "\n")
+    webdata._acct_cache["live"] = {"source": "x", "holdings": [], "at": 0,
+                                   "summary": {"total_krw": 12_000_000, "usd_cash": 1000.0, "usd_rate": 1380.0}}
+    webdata._realized_cache["live"] = {"rows": [{"day": "20261125", "symbol": "SOXL", "qty": 28, "krw": -66_123.0, "pct": -4.4, "fee": 1.0}],
+                                       "total_krw": -66_123.0, "at": 0}
+    try:
+        page = web.render(cfg, "live", "t")
+    finally:
+        webdata._acct_cache.clear(); webdata._realized_cache.clear()
+    assert "실현손익(증권사)" in page and "-66,123원" in page and "11-25" in page
+    assert "-66,751원" in page                                                    # 48.37달러 × 오늘 환율 1380
+
+
+def test_kis_realized_parses_period_profit():
+    from autostock.brokers.kis import KISBroker
+    class C:
+        def call(self, method, path, tr, params):
+            assert tr == "TTTS3039R"
+            return {"output1": [{"trad_day": "20261127", "ovrs_pdno": "SOXL", "slcl_qty": "10", "ovrs_rlzt_pfls_amt": "12345",
+                                 "pftrt": "1.2", "stck_sll_tlex": "0.5"}], "output2": {"ovrs_rlzt_pfls_tot_amt": "12345"}}
+    b = KISBroker.__new__(KISBroker); b.c = C(); b.v = "T"; b.cano = "1"; b.prdt = "01"
+    r = b.realized("20261101", "20261128")
+    assert r["total_krw"] == 12345 and r["rows"][0]["symbol"] == "SOXL" and r["rows"][0]["krw"] == 12345
