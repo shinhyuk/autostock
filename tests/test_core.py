@@ -1678,3 +1678,49 @@ def test_kis_realized_parses_period_profit():
     b = KISBroker.__new__(KISBroker); b.c = C(); b.v = "T"; b.cano = "1"; b.prdt = "01"
     r = b.realized("20261101", "20261128")
     assert r["total_krw"] == 12345 and r["rows"][0]["symbol"] == "SOXL" and r["rows"][0]["krw"] == 12345
+
+
+class FadeMarket(OrbMarket):
+    """개장 10분 동안 SOXL 30 → 28.5 (-5%), 저가 28.4."""
+    def __init__(self, now, end=28.5):
+        super().__init__(now); self.end = end
+    def bars(self, s, n=120):
+        o = self.now.replace(hour=9, minute=30, second=0, microsecond=0)
+        out = []
+        for k in range(int((self.now - o).total_seconds() // 60)):
+            ts = o + timedelta(minutes=k)
+            if s == "SOXL":
+                c = 30 + (self.end - 30) * min(k + 1, 10) / 10 if k < 10 else self.px[s]
+                out.append(Bar(ts, 30.0 if k == 0 else c, c, min(c, 28.4) if k == 7 and self.end < 29 else c, c, 1000))
+            else:
+                out.append(Bar(ts, self.px[s], self.px[s], self.px[s], self.px[s], 1000))
+        return out[-n:]
+
+
+def test_open_fade_buys_opposite_after_opening_crash(tmp_path):
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", fee_pct=0.0, max_stop_loss_pct=6,
+                              take_profit_max_pct=30, open_fade=True)
+    m = FadeMarket(datetime(2026, 1, 5, 9, 38, 30, tzinfo=ET))
+    m.px["SOXL"] = 28.5
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    assert e.st.open is None and "쏠림 확인 대기" in e.orb_status
+    m.now += timedelta(minutes=2)                                    # 9:40:30 — 개장 10분 -5%
+    e.tick()
+    t = e.st.open
+    assert t and t.symbol == "SOXL" and t.kind == "fade"
+    assert abs(t.take_pct - 2.63) < 0.05 and abs(t.stop_pct - 2.35) < 0.05     # 목표 29.25, 손절 28.4×0.98
+    m.now += timedelta(minutes=121)
+    e.tick()
+    assert e.st.open is None and "120분" in e.st.history[-1]["reason"]
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e._entries("fade") == 1 and (e.st.open is None or e.st.open.kind != "fade")
+
+
+def test_open_fade_skips_small_moves(tmp_path):
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", fee_pct=0.0, open_fade=True)
+    m = FadeMarket(datetime(2026, 1, 5, 9, 40, 30, tzinfo=ET), end=29.4)          # -2%
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    e.tick()
+    assert e.st.open is None and e.fade_seen == "2026-01-05"

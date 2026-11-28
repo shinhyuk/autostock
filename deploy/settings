@@ -51,6 +51,13 @@ LIVE__RISK_PER_TRADE_PCT=0
 LIVE__SCALE_IN_FRAC=0.5
 LIVE__SCALE_IN_ADD_PCT=1
 LIVE__TRAIL_MIN_PCT=0.6
+# 개장 쏠림 되돌림 (research/openrev.py): 개장 10분 SOXL 시가 대비 4%↑ 쏠림 → 반대로, 목표 절반 복귀 · 손절 극단+2% · 최대 120분
+LIVE__OPEN_FADE=true
+LIVE__OPEN_FADE_MIN=10
+LIVE__OPEN_FADE_PCT=4
+LIVE__OPEN_FADE_TGT=0.5
+LIVE__OPEN_FADE_STOP=2
+LIVE__OPEN_FADE_HOLD=120
 
 # 모의투자: 1000만원으로 SOXL/SOXS, 정규장만. (모든 탭: 매일 다시 채우지 않고 누적 손익을 반영한 자산으로 매매) 가상매매(기존 돌파 설정)와 나란히 비교하는 개선안:
 #  돌파(진입 마감 60분, 추적 손절 없음, 손절은 범위 중간값) + 범위 안 박스권 매매 (research/README.md)
@@ -110,6 +117,7 @@ PAPER__ORB_MAX_TRADES=2
 # 분할매수: 돌파 때 절반만 사고, 보유 종목이 +1% 가면 나머지 (60일: -15.8% → -4.7%, 최대 낙폭 -37% → -23%)
 PAPER__SCALE_IN_FRAC=0.5
 PAPER__SCALE_IN_ADD_PCT=1
+PAPER__OPEN_FADE=true
 PAPER__ORB_STOP_MODE=mid
 PAPER__ORB_STOP_PCT=1.5
 # 11/24 피드백: 돌파 익절 10% → 6% 실험 (20일 엔진 재생 모의 설정 기준 +408만 → +447만, 11/24 -30만 → -7만). 실계좌도 6% (사용자 요청), 모의투자는 10% 유지하고 비교

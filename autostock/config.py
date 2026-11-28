@@ -91,6 +91,12 @@ class Settings:
     orb_take_pct: float = 10.0
     orb_trail_pct: float = 3.0
     orb_peers: tuple[str, ...] = ("NVDA", "SOXX")   # 돌파 방향으로 같이 움직여야 하는 종목
+    open_fade: bool = False             # 개장 쏠림 되돌림: 개장 N분에 시가 대비 큰 쏠림이면 반대로 (research/openrev.py)
+    open_fade_min: int = 10
+    open_fade_pct: float = 4.0          # 이만큼 넘게 쏠렸을 때만
+    open_fade_tgt: float = 0.5          # 목표 = 시가까지 거리의 이 비율 되돌림
+    open_fade_stop: float = 2.0         # 손절 = 쏠림 극단 너머 이 %
+    open_fade_hold: int = 120           # 최대 보유 시간(분)
     orb_stop_mode: str = "pct"          # pct(orb_stop_pct) | mid(개장 범위 중간값 — 진입가 대비 %로 바꿔 보유 종목에 적용)
     vol_filter_min: float = 0.0         # 최근 5일 평균 하루 변동폭(%)이 이보다 작으면 그날 정규장 매매 안 함 (0=끔)
     risk_per_trade_pct: float = 0.0     # 손절까지 가면 잃는 돈이 자본의 이 % 가 되도록 수량을 줄임 (0=끔, 전액 매수)
@@ -215,6 +221,12 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         orb_trail_pct=_f("ORB_TRAIL_PCT", 3.0),
         orb_peers=tuple(x.strip().upper() for x in _s("ORB_PEERS", "NVDA,SOXX").split(",") if x.strip()),
         orb_stop_mode=_s("ORB_STOP_MODE", "pct").lower(),
+        open_fade=_s("OPEN_FADE", "false").lower() in ("true", "1", "yes"),
+        open_fade_min=_i("OPEN_FADE_MIN", 10),
+        open_fade_pct=_f("OPEN_FADE_PCT", 4.0),
+        open_fade_tgt=_f("OPEN_FADE_TGT", 0.5),
+        open_fade_stop=_f("OPEN_FADE_STOP", 2.0),
+        open_fade_hold=_i("OPEN_FADE_HOLD", 120),
         vol_filter_min=_f("VOL_FILTER_MIN", 0.0),
         risk_per_trade_pct=_f("RISK_PER_TRADE_PCT", 0.0),
         noise=_s("NOISE", "false").lower() in ("true", "1", "yes"),

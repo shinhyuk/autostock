@@ -70,6 +70,7 @@ class Engine:
         self.orb: dict[str, dict] = {}               # 세션별 개장 범위와 동조 종목 시가
         self.orb_status = ""
         self._orb_minute: datetime | None = None
+        self.fade_seen = ""                         # 개장 쏠림 되돌림을 이미 확인한 세션
         self._extbox_used: set = set()
         self._news = None                             # 뉴스 판단 기록 (가상매매 실험)
         self._ov_mt = None                            # 결과 페이지 설정(overrides.json) 마지막으로 본 시각                # 시간외 박스: 이미 진입한 (박스 시작, 위치)
@@ -469,6 +470,8 @@ class Engine:
             self.orb_status = "정규장에서만 매매"
             return
         since = minutes_since_open(now)
+        if c.open_fade and self._fade_tick(now, sess, since):
+            return
         if since < c.orb_minutes:
             self.orb_status = f"범위 형성 중 ({c.orb_minutes - since:.0f}분 남음)"
             return
@@ -560,6 +563,54 @@ class Engine:
         if self.st.open:
             self.orb_status = "보유 중 (돌파)"
             self._ai_review(now)
+
+    # ── 개장 쏠림 되돌림 ────────────────────────────────────
+    def _fade_tick(self, now: datetime, sess, since: float) -> bool:
+        """개장 open_fade_min 분에 SOXL 이 시가 대비 open_fade_pct% 넘게 쏠려 있으면 반대로 산다
+        (빠졌으면 SOXL, 올랐으면 SOXS). 목표 = 시가까지 거리의 open_fade_tgt, 손절 = 쏠림 극단 너머 open_fade_stop%.
+        SOXL 가격 기준 거리를 % 로 바꿔 산 종목에 그대로 쓴다(SOXS 는 거의 정확히 반대로 움직임).
+        진입 시도는 그 시점 3분 안에 하루 한 번. 진입했으면 True (돌파 매매는 이번 분 건너뜀)."""
+        c = self.cfg
+        key = sess.key
+        if since < c.open_fade_min:
+            if since < c.orb_minutes:
+                self.orb_status = f"개장 쏠림 확인 대기 ({c.open_fade_min - since:.0f}분 남음)"
+            return True
+        if self.fade_seen == key or since > c.open_fade_min + 3:
+            return False
+        if self.st.open or self.st.halted or self._entries("fade"):
+            self.fade_seen = key
+            return False
+        end = sess.open + timedelta(minutes=c.open_fade_min)
+        rb = [b for b in self.market.bars(c.bull, 60) if sess.open <= b.ts < end]
+        if len(rb) < c.open_fade_min * 0.6:
+            log.warning("개장 쏠림 확인: 봉 부족 (%d개)", len(rb))
+            self.fade_seen = key
+            return False
+        self.fade_seen = key
+        o, p = rb[0].open, rb[-1].close
+        mv = (p / o - 1) * 100
+        if abs(mv) < c.open_fade_pct:
+            self._activity(now, f"개장 {c.open_fade_min}분 {mv:+.1f}% — 쏠림 작음, 되돌림 매매 안 함")
+            return False
+        sd = 1 if mv < 0 else -1
+        ext = min(b.low for b in rb) if sd > 0 else max(b.high for b in rb)
+        stp = ext * (1 - c.open_fade_stop / 100) if sd > 0 else ext * (1 + c.open_fade_stop / 100)
+        tg = p + (o - p) * c.open_fade_tgt
+        stop_pct, take_pct = abs(stp / p - 1) * 100, abs(tg / p - 1) * 100
+        side = c.bull if sd > 0 else c.bear
+        if not side:
+            return False
+        last = self.market.quote(side).last
+        d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100, stop_loss_pct=stop_pct, take_profit_pct=take_pct,
+                     reason=f"개장 {c.open_fade_min}분 {c.bull} {mv:+.1f}% 쏠림 → 되돌림 (목표 +{take_pct:.1f}%, "
+                            f"손절 -{stop_pct:.1f}%, 최대 {c.open_fade_hold}분)")
+        self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side, "reason": d.reason})
+        self._enter(d, last, trail=0.0, kind="fade")
+        if self.st.open:
+            self.orb_status = "보유 중 (개장 쏠림 되돌림)"
+            return True
+        return False
 
     # ── 변동성 필터 자료 ────────────────────────────────────
     def _ranges_path(self) -> str:
@@ -989,6 +1040,11 @@ class Engine:
             if last > t.peak_price:
                 t.peak_price = last
                 self.st.save(self.state_path)
+            held = (now - datetime.fromisoformat(t.entry_ts)).total_seconds() / 60
+            if t.kind == "fade" and held >= self.cfg.open_fade_hold:
+                if self._close(f"개장 되돌림: {self.cfg.open_fade_hold}분 보유 후 정리", last):
+                    self.st.save(self.state_path)
+                return
             if why := self.risk.exit_reason(self.st, now, last):
                 if self._close(why, last) and not self.st.halted:
                     self.last_decision_at = None     # 코드가 청산했으면 바로 다음 틱에 AI 에게 다음 수를 묻는다
