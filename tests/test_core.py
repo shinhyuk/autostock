@@ -1766,3 +1766,18 @@ def test_book_recorder_writes_rows_and_summary(tmp_path, monkeypatch):
     rows = [json.loads(x) for x in open(tmp_path / "book" / "SOXL_20261130.jsonl")]
     assert len(rows) >= 2 and rows[0]["a"][0] == [30.01, 500] and rows[0]["s"] == "regular"
     assert "1일치" in webdata.book_summary(cfg) and "2단계" in webdata.book_summary(cfg)
+
+
+def test_orb_lead_filter_blocks_weak_leaders(orb_rig):
+    e, m, _ = orb_rig(orb_lead_min=1.0)
+    m.opens.update(AVGO=300.0, AMD=200.0); m.px.update(AVGO=300.6, AMD=200.2)   # NVDA +0.78%, AVGO +0.2%, AMD +0.1% → 평균 0.36%
+    m.after, m.px["SOXL"] = [30.8], 30.8
+    m.now += timedelta(minutes=1)
+    e.tick()
+    assert e.st.open is None and "주도주 힘 부족" in e.orb_status
+    m.px.update(AVGO=306.0, AMD=204.0)                                           # 평균 (0.78+2+2)/3 = 1.6%
+    m.after.append(30.9); m.px["SOXL"] = 30.9
+    m.now += timedelta(minutes=1)
+    e.tick()
+    buys = [x for x in map(json.loads, open(e.log_path)) if x.get("kind") == "buy"]
+    assert e.st.open and e.st.open.symbol == "SOXL" and "주도주 평균 +1.6%" in buys[-1]["reason"]

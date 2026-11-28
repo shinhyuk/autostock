@@ -84,7 +84,7 @@ def signals(days, step):
             mv10 = (L[n10 - 1][3] / o0 - 1) * 100
             feat = [sig["kind"] == "orb", sig["kind"] == "box", sig["sd"] > 0, abs(mv10) / 5, wid / 10, vol5 / 10,
                     mins / 60, sig.get("brk", 0), sig.get("peer", 0), sig["sd"] * mv10 / 5, tp / sp / 3]
-            t = dict(date=day["date"], kind=sig["kind"], sym="SOXL" if sig["sd"] > 0 else "SOXS", ent=ent,
+            t = dict(date=day["date"], m=ms[i], sd=sig["sd"], kind=sig["kind"], sym="SOXL" if sig["sd"] > 0 else "SOXS", ent=ent,
                      stop=ent * (1 - sp), take=ent * (1 + tp), path=path, x=feat, tp=tp, sp=sp)
             r, k = execute(t, 1.0, {}); t["win"] = r > 0; t["base"] = r
             out.append(t); busy_until = j + k

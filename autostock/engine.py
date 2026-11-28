@@ -531,7 +531,7 @@ class Engine:
             o = {"hh": max(b.high for b in rb), "ll": min(b.low for b in rb), "peers": {}}
             o["broke"] = any(b.close > o["hh"] or b.close < o["ll"]                # 재시작 시: 이미 범위를 벗어났었는지
                              for b in self.market.bars(c.bull, 120) if end <= b.ts < minute)
-            for p in c.orb_peers:
+            for p in dict.fromkeys(c.orb_peers + (c.orb_lead_syms if c.orb_lead_min else ())):
                 try:
                     pb = [b for b in self.market.bars(p, 120) if b.ts >= sess.open]
                     o["peers"][p] = pb[0].open if pb else None
@@ -582,13 +582,22 @@ class Engine:
             return
         lag = []
         for p, p0 in o["peers"].items():
-            if p0:
+            if p0 and p in c.orb_peers:
                 chg = (self.market.quote(p).last / p0 - 1) * 100
                 if sg * chg <= 0:
                     lag.append(f"{p} {chg:+.2f}%")
         if lag:
             self.orb_status = f"{'상단' if sg > 0 else '하단'} 돌파했지만 동조 안 됨: {', '.join(lag)}"
             return
+        lead_txt = ""
+        if c.orb_lead_min:                           # 주도주가 돌파 방향으로 충분히 움직였나 (약하면 가짜 돌파가 많음)
+            ch = [(self.market.quote(p).last / o["peers"][p] - 1) * 100 for p in c.orb_lead_syms if o["peers"].get(p)]
+            avg = sg * sum(ch) / len(ch) if ch else None
+            if avg is None or avg < c.orb_lead_min:
+                self.orb_status = (f"{'상단' if sg > 0 else '하단'} 돌파했지만 주도주 힘 부족: "
+                                   + (f"{'/'.join(c.orb_lead_syms)} 평균 {avg:+.2f}% < {c.orb_lead_min:.1f}%" if avg is not None else "시가 없음"))
+                return
+            lead_txt = f", 주도주 평균 {avg:+.1f}%"
         last = self.market.quote(side).last
         stop_pct = c.orb_stop_pct
         if c.orb_stop_mode == "mid":                 # 범위 중간값까지의 거리(SOXL 기준 %)를 보유 종목에 적용
@@ -597,7 +606,7 @@ class Engine:
         d = Decision(action="BUY", symbol=side, confidence=1.0, size_pct=100,
                      stop_loss_pct=stop_pct, take_profit_pct=c.orb_take_pct,
                      reason=f"개장 {c.orb_minutes}분 범위(${o['ll']:.2f}~${o['hh']:.2f}) "
-                            f"{'상단' if sg > 0 else '하단'} 돌파, 종가 ${close:.2f}, 동조 종목 같은 방향")
+                            f"{'상단' if sg > 0 else '하단'} 돌파, 종가 ${close:.2f}, 동조 종목 같은 방향{lead_txt}")
         self.recent_decisions.append({"time": now.strftime("%H:%M"), "action": "BUY", "symbol": side,
                                       "reason": d.reason})
         self._enter(d, last, trail=c.orb_trail_pct, kind="orb")
@@ -965,7 +974,7 @@ class Engine:
         if c.box_peer_max:                           # 시장 전체가 반대로 가는 날의 역추세 매수를 피한다
             against = []
             for p, p0 in o["peers"].items():
-                if p0:
+                if p0 and p in c.orb_peers:
                     chg = (self.market.quote(p).last / p0 - 1) * 100
                     if sg * chg < -c.box_peer_max:
                         against.append(f"{p} {chg:+.2f}%")

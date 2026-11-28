@@ -98,6 +98,8 @@ class Settings:
     open_fade_tgt: float = 0.5          # 목표 = 시가까지 거리의 이 비율 되돌림
     open_fade_stop: float = 2.0         # 손절 = 쏠림 극단 너머 이 %
     open_fade_hold: int = 120           # 최대 보유 시간(분)
+    orb_lead_min: float = 0.0           # 돌파 때 주도주(엔비디아·브로드컴·AMD) 시가 대비 평균이 돌파 방향으로 이 % 이상이어야 (0=끔, research/constfilter.py)
+    orb_lead_syms: tuple[str, ...] = ("NVDA", "AVGO", "AMD")
     orb_stop_mode: str = "pct"          # pct(orb_stop_pct) | mid(개장 범위 중간값 — 진입가 대비 %로 바꿔 보유 종목에 적용)
     vol_filter_min: float = 0.0         # 최근 5일 평균 하루 변동폭(%)이 이보다 작으면 그날 정규장 매매 안 함 (0=끔)
     risk_per_trade_pct: float = 0.0     # 손절까지 가면 잃는 돈이 자본의 이 % 가 되도록 수량을 줄임 (0=끔, 전액 매수)
@@ -222,6 +224,8 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         orb_trail_pct=_f("ORB_TRAIL_PCT", 3.0),
         orb_peers=tuple(x.strip().upper() for x in _s("ORB_PEERS", "NVDA,SOXX").split(",") if x.strip()),
         orb_stop_mode=_s("ORB_STOP_MODE", "pct").lower(),
+        orb_lead_min=_f("ORB_LEAD_MIN", 0.0),
+        orb_lead_syms=tuple(x.strip().upper() for x in _s("ORB_LEAD_SYMS", "NVDA,AVGO,AMD").split(",") if x.strip()),
         recent_size_n=_i("RECENT_SIZE_N", 0),
         open_fade=_s("OPEN_FADE", "false").lower() in ("true", "1", "yes"),
         open_fade_min=_i("OPEN_FADE_MIN", 10),

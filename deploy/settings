@@ -121,6 +121,7 @@ PAPER__SCALE_IN_FRAC=0.5
 PAPER__SCALE_IN_ADD_PCT=1
 PAPER__OPEN_FADE=true
 PAPER__RECENT_SIZE_N=10
+PAPER__ORB_LEAD_MIN=1
 PAPER__ORB_STOP_MODE=mid
 PAPER__ORB_STOP_PCT=1.5
 # 11/24 피드백: 돌파 익절 10% → 6% 실험 (20일 엔진 재생 모의 설정 기준 +408만 → +447만, 11/24 -30만 → -7만). 실계좌도 6% (사용자 요청), 모의투자는 10% 유지하고 비교
