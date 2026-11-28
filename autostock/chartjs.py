@@ -36,17 +36,18 @@ function draw(){if(!D||!D.bars||D.bars.length<2){ctx.clearRect(0,0,cv.width,cv.h
  if(D.range&&D.range.length==2){const x=Math.max(0,X(fromC(D.range_t))-bw/2);ctx.fillStyle=warn;ctx.globalAlpha=.07;ctx.fillRect(x,Y(D.range[1]),pw-x,Y(D.range[0])-Y(D.range[1]));ctx.globalAlpha=1}
  for(const z of D.bands||[]){const x=Math.max(0,X(fromC(D.range_t))-bw/2),col=z.k=='bl'?up:z.k=='bs'?dn:z.k=='buy'?ok:z.k=='avoid'?dn:mut;ctx.fillStyle=col;ctx.globalAlpha=.13;ctx.fillRect(x,Y(z.hi),pw-x,Math.max(Y(z.lo)-Y(z.hi),2));ctx.globalAlpha=1;
   if(z.l){ctx.fillStyle=col;ctx.font='bold 11px system-ui';ctx.fillText(z.l,x+4,Y(z.lo)+12);ctx.font='11px system-ui'}}
+ // 지난 예측: 그때 예상한 봉을 옅은 보라색으로 실제 봉 뒤에 깐다 (예측이 시작된 봉은 점으로 표시)
+ {const gw=Math.max(bw*.92,1.5);for(const g of D.fc&&D.fc.ghost||[]){const c=colOf(g[0]);if(c<c0||c>end)continue;const x=X(c);
+  ctx.strokeStyle=vw;ctx.fillStyle=vw;ctx.globalAlpha=.28;ctx.beginPath();ctx.moveTo(x,Y(g[2]));ctx.lineTo(x,Y(g[3]));ctx.stroke();
+  const gy=Math.min(Y(g[1]),Y(g[4])),gh=Math.max(Math.abs(Y(g[1])-Y(g[4])),1.5);
+  if(g[4]>=g[1]){ctx.globalAlpha=.1;ctx.fillRect(x-gw/2,gy,gw,gh);ctx.globalAlpha=.45;ctx.strokeRect(x-gw/2+.5,gy+.5,Math.max(gw-1,.5),Math.max(gh-1,.5))}
+  else{ctx.globalAlpha=.32;ctx.fillRect(x-gw/2,gy,gw,gh)}
+  if(g[5]){ctx.globalAlpha=.6;ctx.beginPath();ctx.arc(x-bw,Y(g[1]),2,0,7);ctx.fill()}ctx.globalAlpha=1}}
  // 거래량·봉
  const vmax=Math.max(...vis.map(c=>B[c][5]||0))||1,w=Math.max(bw*.62,1);
  for(const c of vis){const [t,o,h,l,cl,v]=B[c],col=cl>=o?up:dn,x=X(c);ctx.fillStyle=col;ctx.globalAlpha=.3;const vv=(v||0)/vmax*vh;ctx.fillRect(x-w/2,vt+vh-vv,w,vv);ctx.globalAlpha=1;
   ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(x,Y(h));ctx.lineTo(x,Y(l));ctx.stroke();if(bw>=2.5)ctx.fillRect(x-w/2,Math.min(Y(o),Y(cl)),w,Math.max(Math.abs(Y(o)-Y(cl)),1))}
  if(D.vwap){ctx.strokeStyle=vw;ctx.lineWidth=1.5;ctx.beginPath();let st=false;for(const c of vis){const v=D.vwap[c];if(v==null){st=false;continue}if(!st){ctx.moveTo(X(c),Y(v));st=true}else ctx.lineTo(X(c),Y(v))}ctx.stroke();ctx.lineWidth=1}
- // 지난 예측들: 맞음 초록, 틀림 주황, 진행 중 회색
- // 지난 예측: 그때 그린 보라색 점선을 그대로 남기고, 끝점에 결과 표시 (초록=맞음, 주황=틀림, 빈 점=아직)
- for(const p of D.fc&&D.fc.past||[]){const xs=p.pts.map(([k,v])=>[colOf(p.t+k*p.step),v]);
-  const x0=colOf(p.t);if(x0>end||xs[xs.length-1][0]<c0)continue;ctx.strokeStyle=vw;ctx.globalAlpha=.55;ctx.lineWidth=1.3;ctx.setLineDash([4,3]);
-  ctx.beginPath();ctx.moveTo(X(x0),Y(p.p0));for(const [c,v] of xs)ctx.lineTo(X(c),Y(v));ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;ctx.lineWidth=1;
-  const [ce,ve]=xs[xs.length-1];ctx.beginPath();ctx.arc(X(ce),Y(ve),3.2,0,7);if(p.hit==null){ctx.strokeStyle=vw;ctx.stroke()}else{ctx.fillStyle=p.hit?ok:warn;ctx.fill()}}
  // 예상선: 세기만큼 진하게
  if(fpts.length){const st=fc.strength||0,x0=fs[0];ctx.fillStyle=vw;ctx.globalAlpha=.06+.1*st;ctx.beginPath();ctx.moveTo(X(x0),Y(fs[1]));fpts.forEach(p=>ctx.lineTo(X(p[0]),Y(p[2][1])));
   for(let k=fpts.length-1;k>=0;k--)ctx.lineTo(X(fpts[k][0]),Y(fpts[k][2][0]));ctx.closePath();ctx.fill();ctx.globalAlpha=.35+.65*st;ctx.strokeStyle=vw;ctx.lineWidth=1.4+2.6*st;if(!st)ctx.setLineDash([5,3]);

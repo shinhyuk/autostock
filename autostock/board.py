@@ -751,6 +751,22 @@ class Recorder:
                     ok = r["res"]["in50"]                            # 방향이 없으면 50% 범위 안에 들었는지로 맞음/틀림
                 past.append({"t": r["t"], "p0": r["p0"], "step": r["step"], "pts": [[k, ln[k - 1]] for k in ks], "hit": ok})
             past = past[-300:]
+            ghost, end = [], 0                                       # 지난 예측을 봉 모양으로: 겹치지 않게 이어 붙인 예측들
+            for r in rows[:-1]:
+                if r["t"] < since_ms or r["t"] < end:
+                    continue
+                end = r["t"] + r["h"] * r["step"]
+                prev = r["p0"]
+                for j, v in enumerate(r["line"]):
+                    t = r["t"] + (j + 1) * r["step"]
+                    if t > last["t"]:
+                        break
+                    blo, bhi = r["band"][j]
+                    # 꼬리 = 이 봉 하나만큼의 불확실성(50% 범위를 봉 수로 나눔), 몸통 = 예상 시가→종가
+                    sd = (bhi - blo) / 2 / math.sqrt(j + 1)
+                    ghost.append([t, round(prev, 4), round(max(prev, v) + sd, 4), round(min(prev, v) - sd, 4), round(v, 4), int(j == 0)])
+                    prev = v
+            ghost = ghost[-2000:]
         far = []
         if last["band"]:
             lo, hi = last["band"][-1]
@@ -768,7 +784,7 @@ class Recorder:
                         "models": {c: {"err": round(v["err"], 3), "dir": v["dir"] and round(v["dir"]), "label": CLABEL.get(c, c)}
                                    for c, v in sc.items() if not c.startswith("_")}},
                 "strength": max(0.0, min(1.0, ((m.get("dir") or 50) - 50) / 20)) if last["model"] != "flat" else 0.0,
-                "past": past}
+                "past": past, "ghost": ghost}
 
     def loop(self, stop: threading.Event, recent_fn=None, every: float = 30) -> None:
         while not stop.is_set():

@@ -256,9 +256,47 @@ class Engine:
         return ok
 
     # ── 주문 ────────────────────────────────────────────────
+    def _recent(self) -> list:
+        """최근 거래 승패 (True=이익). 장부에 없으면 거래 기록(journal)에서 채운다: 매수 사이의 매도들을 한 거래로 묶음."""
+        if "recent" not in self.ledger:
+            wins, acc, open_ = [], 0.0, False
+            try:
+                with open(self.log_path, encoding="utf-8") as f:
+                    for ln in f:
+                        try:
+                            ev = json.loads(ln)
+                        except ValueError:
+                            continue
+                        if ev.get("kind") == "buy" and open_:
+                            wins.append(acc > 0); acc, open_ = 0.0, False
+                        elif ev.get("kind") == "sell" and ev.get("pnl_usd") is not None:
+                            acc += ev["pnl_usd"]; open_ = True
+            except FileNotFoundError:
+                pass
+            if open_:
+                wins.append(acc > 0)
+            self.ledger["recent"] = wins[-30:]
+        return self.ledger["recent"]
+
+    def recent_factor(self) -> tuple[float, str]:
+        """최근 n 번 승률(1승 1패를 미리 더해 흔들림을 줄임)로 투입 비율을 정한다."""
+        n = self.cfg.recent_size_n
+        if not n:
+            return 1.0, ""
+        r = self._recent()[-n:]
+        p = (sum(r) + 1) / (len(r) + 2)
+        f = 0.25 if p < 0.4 else 0.5 if p < 0.55 else 1.0
+        return f, f"최근 {len(r)}회 {sum(r)}승 → 승률 {p * 100:.0f}% → 금액 {f * 100:.0f}%"
+
     def _enter(self, d: Decision, last: float, atr_pct: float | None = None, trail: float | None = None,
                kind: str = "", qty: int | None = None) -> None:
-        qty = qty or self.risk.size(self.st, d, last, self.equity_usd)
+        if not qty:
+            qty = self.risk.size(self.st, d, last, self.equity_usd)
+            if self.cfg.recent_size_n:
+                f, why = self.recent_factor()
+                if f < 1 and qty:
+                    qty = max(1, int(qty * f))
+                    d = d.model_copy(update={"reason": f"{d.reason} · {why}"})
         if qty < 1:
             self._reject(d, "수량 0 (자금 또는 손실 여유 부족)")
             return
@@ -319,6 +357,9 @@ class Engine:
         else:
             st.open = None
             st.trades += 1
+            total = sum(h.get("pnl_usd", 0) for h in st.history if h.get("entry_ts") == t.entry_ts) + pnl
+            self.ledger["recent"] = (self._recent() + [total > 0])[-30:]
+            self._save_ledger()
             if pnl >= 0:
                 st.wins, st.consecutive_losses = st.wins + 1, 0
             else:

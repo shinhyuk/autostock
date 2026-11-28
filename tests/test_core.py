@@ -1610,6 +1610,9 @@ def test_forecast_recorder_records_scores_and_adapts(tmp_path):
     assert v and v["acc"]["n"] >= 40 and v["model"].startswith("mom")                      # 스스로 흐름 방식을 고름
     assert v["acc"]["dir"] > 80 and len(v["line"]) == board.FAR * v["h"] and v["past"]
     assert all(isinstance(p["hit"], (bool, type(None))) for p in v["past"])
+    g = v["ghost"]                                                                          # 지난 예측 봉: 시간 순, 겹치지 않음
+    assert len(g) > 100 and all(a[0] < c[0] for a, c in zip(g, g[1:])) and g[-1][0] <= v["t"]
+    assert all(x[2] >= max(x[1], x[4]) and x[3] <= min(x[1], x[4]) for x in g) and sum(x[5] for x in g) >= 3
     r2 = board.Recorder(str(tmp_path))                                                      # 파일에 저장돼 다시 읽힘
     assert r2.view("SOXL", "1m")["t"] == v["t"]
 
@@ -1724,3 +1727,23 @@ def test_open_fade_skips_small_moves(tmp_path):
     e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
     e.tick()
     assert e.st.open is None and e.fade_seen == "2026-01-05"
+
+
+def test_recent_win_rate_scales_entry_size(tmp_path):
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), strategy="orb", fee_pct=0.0, max_stop_loss_pct=6,
+                              take_profit_max_pct=30, open_fade=True, recent_size_n=10, capital_krw=2_800_000, usdkrw=1400)
+    ev = [{"kind": "buy", "symbol": "SOXL", "qty": 1, "price": 30}, {"kind": "sell", "symbol": "SOXL", "qty": 1, "price": 29, "pnl_usd": -1}] * 6
+    with open(tmp_path / "journal_paper.jsonl", "w") as f:
+        f.write("\n".join(json.dumps(x) for x in ev) + "\n")
+    m = FadeMarket(datetime(2026, 1, 5, 9, 40, 30, tzinfo=ET))
+    m.px["SOXL"] = 28.5
+    e = Engine(cfg, m, PaperBroker(slippage_pct=0), Brain(dec("HOLD", "")), clock=lambda: m.now)
+    assert e._recent() == [False] * 6 and e.recent_factor()[0] == 0.25          # 0승 6패 → (0+1)/(6+2)=12%
+    full = e.risk.size(e.st, dec("BUY", "SOXL", stop=2.34), 28.5, e.equity_usd)
+    e.tick()
+    t = e.st.open
+    assert t and full > 8 and t.qty == int(full * 0.25)
+    m.px["SOXL"] = 29.3                                                          # 목표(29.25) 도달 → 이익
+    m.now += timedelta(seconds=20)
+    e.tick()
+    assert e.st.open is None and e.ledger["recent"][-1] is True

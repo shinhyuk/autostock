@@ -91,6 +91,7 @@ class Settings:
     orb_take_pct: float = 10.0
     orb_trail_pct: float = 3.0
     orb_peers: tuple[str, ...] = ("NVDA", "SOXX")   # 돌파 방향으로 같이 움직여야 하는 종목
+    recent_size_n: int = 0              # 최근 n 번 거래 승률로 금액 조절 (<40% 25%, 40~55% 절반, 55%↑ 전액). 0=끔 (research/probsize.py)
     open_fade: bool = False             # 개장 쏠림 되돌림: 개장 N분에 시가 대비 큰 쏠림이면 반대로 (research/openrev.py)
     open_fade_min: int = 10
     open_fade_pct: float = 4.0          # 이만큼 넘게 쏠렸을 때만
@@ -221,6 +222,7 @@ def _build(mode: str, modes: tuple[str, ...]) -> Settings:
         orb_trail_pct=_f("ORB_TRAIL_PCT", 3.0),
         orb_peers=tuple(x.strip().upper() for x in _s("ORB_PEERS", "NVDA,SOXX").split(",") if x.strip()),
         orb_stop_mode=_s("ORB_STOP_MODE", "pct").lower(),
+        recent_size_n=_i("RECENT_SIZE_N", 0),
         open_fade=_s("OPEN_FADE", "false").lower() in ("true", "1", "yes"),
         open_fade_min=_i("OPEN_FADE_MIN", 10),
         open_fade_pct=_f("OPEN_FADE_PCT", 4.0),
