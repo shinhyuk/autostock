@@ -155,6 +155,11 @@ def _nav(token: str, mode: str, running) -> str:
     return "".join(f"<a{' class=on' if m == mode else ''} href='/?k={e(token)}&mode={m}'>{e(n)}</a>" for m, n in tabs)
 
 
+def cfg_paper():
+    from . import config as _c
+    return _c.load("paper")
+
+
 def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
     e = html.escape
     now = now or datetime.now(KST)
@@ -389,8 +394,8 @@ def render(cfg, mode: str, token: str, now: datetime | None = None) -> str:
                        f"{ACTION.get(x.get('action', ''), e(str(x.get('action', ''))))}</span> <span class=a>{e(str(x.get('reason', '')))}</span></div></div>" for x in decisions)
         out.append(f"<details><summary>AI 판단 기록</summary><div class=feed>{rows}</div></details>")
     system = [x for x in events if x.get("kind") in ("ordertest", "error")][-6:][::-1]
-    if system:
-        rows = "".join(f"<div class=row><div class=t>{_kst(x['ts'], '%m-%d %H:%M')}</div><div class=a>"
+    if system or mode == "live":
+        rows = f"<div class=row><div class=t>호가 기록</div><div class=a>{e(webdata.book_summary(cfg_paper()))}</div></div>" + "".join(f"<div class=row><div class=t>{_kst(x['ts'], '%m-%d %H:%M')}</div><div class=a>"
                        f"{'주문 테스트 ' + ('통과' if x.get('ok') else '실패') if x['kind'] == 'ordertest' else '오류'} · {e(str(x.get('detail', ''))[:160])}</div></div>" for x in system)
         out.append(f"<details><summary>시스템 기록</summary><div class=feed>{rows}</div></details>")
     if mode != "paper" and not (tests and not tests[-1].get("ok")):
@@ -958,6 +963,7 @@ def main() -> int:
     STORE = webdata.BarStore(os.path.join(config.load().data_dir, "bars_cache.json"))
     threading.Thread(target=webdata.collector, args=(STORE, threading.Event()), daemon=True).start()
     threading.Thread(target=webdata.account_refresher, args=(threading.Event(),), daemon=True).start()
+    threading.Thread(target=webdata.book_recorder, args=(threading.Event(),), daemon=True).start()
     board.REC = board.Recorder(config.load("paper").data_dir)
     threading.Thread(target=board.REC.loop, args=(threading.Event(), lambda s_: webdata.board_recent(config.load("paper"), STORE, s_)),
                      daemon=True).start()

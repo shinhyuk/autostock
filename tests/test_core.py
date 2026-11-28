@@ -1747,3 +1747,22 @@ def test_recent_win_rate_scales_entry_size(tmp_path):
     m.now += timedelta(seconds=20)
     e.tick()
     assert e.st.open is None and e.ledger["recent"][-1] is True
+
+
+def test_book_recorder_writes_rows_and_summary(tmp_path, monkeypatch):
+    import threading, time
+    from autostock import webdata, config as cf
+    cfg = dataclasses.replace(Settings(), data_dir=str(tmp_path), bull="SOXL", bear="SOXS")
+    monkeypatch.setattr(cf, "load", lambda m=None: cfg)
+    class MK:
+        def book_levels(self, s):
+            return {"asks": [[30.01, 500], [30.02, 800]], "bids": [[30.0, 700]], "last": 30.0}
+    monkeypatch.setattr(webdata, "market", lambda c: MK())
+    monkeypatch.setattr(webdata.market_hours, "now_et", lambda: datetime(2026, 11, 30, 10, 0, tzinfo=ET))
+    webdata.BOOK_STAT.clear()
+    stop = threading.Event()
+    th = threading.Thread(target=webdata.book_recorder, args=(stop, 0.05)); th.start()
+    time.sleep(0.3); stop.set(); th.join()
+    rows = [json.loads(x) for x in open(tmp_path / "book" / "SOXL_20261130.jsonl")]
+    assert len(rows) >= 2 and rows[0]["a"][0] == [30.01, 500] and rows[0]["s"] == "regular"
+    assert "1일치" in webdata.book_summary(cfg) and "2단계" in webdata.book_summary(cfg)

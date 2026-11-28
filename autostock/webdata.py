@@ -509,3 +509,70 @@ def board_recent(cfg, store: BarStore, sym: str) -> list[list]:
         finally:
             _kis_lock.release()
     return store.get(sym, now.timestamp() - 2 * 86400)
+
+
+# ── 호가 기록기: 매매 종목 호가창을 몇 초마다 저장 (나중에 '호가로 더 잘 맞히나' 시험용) ──
+BOOK_STAT: dict = {}
+
+
+def book_dir(cfg) -> str:
+    return os.path.join(cfg.data_dir, "book")
+
+
+def book_row(sym: str, b: dict, now: float, sess: str) -> dict | None:
+    """저장 한 줄: t 초, s 세션, l 현재가, a/b [[가격, 잔량], ...] (1호가부터)."""
+    if not b or b.get("error") or not (b.get("asks") or b.get("bids")):
+        return None
+    return {"t": round(now, 1), "s": sess, "l": b.get("last"), "a": b.get("asks"), "b": b.get("bids")}
+
+
+def book_recorder(stop: threading.Event, every: float = 5.0) -> None:
+    """장이 열려 있는 동안(정규장·프리·애프터·주간거래) SOXL·SOXS 호가를 every 초마다 data/book/종목_YYYYMMDD.jsonl 에 쌓는다.
+    날짜는 미국 동부 기준. 다른 조회와 겹치면 그 회차는 건너뛴다."""
+    while not stop.is_set():
+        t0 = time.time()
+        try:
+            cfg = config.load("paper")
+            now = market_hours.now_et()
+            es = extbox.session(now)
+            cur = market_hours.current(now)
+            sess = es[0] if es else ("regular" if cur and cur.name == "regular" else "")
+            if sess:
+                _enable_day(es)
+                mk = market(cfg)
+                for sym in [s for s in (cfg.bull, cfg.bear) if s]:
+                    if not mk or not _kis_lock.acquire(timeout=1):
+                        continue
+                    try:
+                        b = mk.book_levels(sym)
+                    except Exception as e:
+                        b = {"error": str(e)}
+                    finally:
+                        _kis_lock.release()
+                    row = book_row(sym, b, time.time(), sess)
+                    st = BOOK_STAT.setdefault(sym, {"n": 0, "err": 0})
+                    if row is None:
+                        st["err"] += 1
+                        st["last_err"] = str(b.get("error", "빈 호가"))[:120]
+                        continue
+                    os.makedirs(book_dir(cfg), exist_ok=True)
+                    with open(os.path.join(book_dir(cfg), f"{sym}_{now.strftime('%Y%m%d')}.jsonl"), "a", encoding="utf-8") as f:
+                        f.write(json.dumps(row, separators=(",", ":")) + "\n")
+                    st.update(n=st["n"] + 1, at=row["t"], depth=max(len(row["a"] or []), len(row["b"] or [])), sess=sess)
+        except Exception as e:
+            log.info("호가 기록 실패: %s", e)
+        stop.wait(max(every * 0.2, every - (time.time() - t0)))
+
+
+def book_summary(cfg) -> str:
+    """페이지용 한 줄: 모은 날 수, 오늘 건수, 호가 단계."""
+    d = book_dir(cfg)
+    try:
+        files = sorted(os.listdir(d))
+    except FileNotFoundError:
+        files = []
+    days = sorted({f.split("_")[-1][:8] for f in files if f.endswith(".jsonl")})
+    parts = [f"{len(days)}일치 모음" + (f" ({days[0][4:6]}/{days[0][6:]}부터)" if days else "")]
+    for sym, st in BOOK_STAT.items():
+        parts.append(f"{sym} 이번 실행 {st['n']}건 · {st.get('depth', 0)}단계" + (f" · 실패 {st['err']}" if st["err"] else ""))
+    return " · ".join(parts)
